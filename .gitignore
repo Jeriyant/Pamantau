@@ -16,3 +16,6 @@ Thumbs.db
 # Optional local topology exports (keep out of source releases)
 CUSJ.json
 JNET.json
+
+# Commit via Desktop/token with workflow scope:
+.github/workflows/
