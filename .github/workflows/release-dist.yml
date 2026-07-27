@@ -1,0 +1,42 @@
+name: Release dist.zip
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to upload pamantau-dist.zip to (e.g. v1.0.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  pack-and-upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
+
+      - name: Pack release zip
+        run: |
+          chmod +x update.sh
+          mkdir -p dist-pack/database
+          # Code + updater only — never ship live settings / topology data.
+          cp -a index.php update.php update.sh version.json dist-pack/
+          cp -a api assets includes cli dist-pack/
+          if [ -f database/.htaccess ]; then cp database/.htaccess dist-pack/database/; fi
+          if [ -f includes/.htaccess ]; then cp includes/.htaccess dist-pack/includes/; fi
+          cd dist-pack
+          zip -r ../pamantau-dist.zip .
+
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.event.release.tag_name }}
+        run: |
+          gh release upload "$TAG" pamantau-dist.zip --clobber

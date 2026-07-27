@@ -1,0 +1,18 @@
+# Local / runtime
+database/pamantau.json
+database/*.lock
+database/background.lock
+.update-progress.json
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/
+*.swp
+*~
+
+# Optional local topology exports (keep out of source releases)
+CUSJ.json
+JNET.json
