@@ -19,3 +19,7 @@ JNET.json
 
 # Commit via Desktop/token with workflow scope:
 .github/workflows/
+
+# Build / release artifacts
+dist-pack/
+pamantau-dist.zip
