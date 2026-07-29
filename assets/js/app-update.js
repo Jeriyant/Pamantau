@@ -263,18 +263,21 @@
       <div class="update-banner-actions">
         <button type="button" class="update-banner-btn primary" data-act="install">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v11m0 0l-4-4m4 4l4-4M4 20h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span data-i18n="update.install"></span>
+          <span data-i18n="update.install">${t('update.install')}</span>
         </button>
         <a class="update-banner-btn ghost" data-act="view" target="_blank" rel="noopener noreferrer">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span data-i18n="update.view_release"></span>
+          <span data-i18n="update.view_release">${t('update.view_release')}</span>
         </a>
         <button type="button" class="update-banner-btn ghost" data-act="later">
           <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 7v5l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-          <span data-i18n="update.later"></span>
+          <span data-i18n="update.later">${t('update.later')}</span>
         </button>
-        <button type="button" class="update-banner-close" data-act="later" aria-label="Close">×</button>
+        <button type="button" class="update-banner-close" data-act="later" aria-label="Close" data-i18n-aria="common.close">×</button>
       </div>`;
+    if (global.PamantauI18n && typeof global.PamantauI18n.applyDom === 'function') {
+      global.PamantauI18n.applyDom(root);
+    }
     root.querySelector('strong').textContent = t('update.available', { version: latest.version });
     const note = root.querySelector('.update-banner-note');
     const preview = formatReleaseNotesPreview(latest.notes);
