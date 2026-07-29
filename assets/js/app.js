@@ -161,7 +161,7 @@
     'dist-h': { labelKey: 'ctx.dist_h', win: 'Ctrl+Shift+H', mac: '⌘⇧H' },
     'dist-v': { labelKey: 'ctx.dist_v', win: 'Ctrl+Shift+V', mac: '⌘⇧V' },
     'pack-h': { labelKey: 'ctx.pack_h', win: 'Ctrl+Shift+R', mac: '⌘⇧R' },
-    'pack-v': { labelKey: 'ctx.pack_v', win: 'Ctrl+Shift+K', mac: '⌘⇧K' },
+    'pack-v': { labelKey: 'ctx.pack_v', win: 'Ctrl+Shift+G', mac: '⌘⇧G' },
   };
 
   function arrangeShortcutChord(act) {
@@ -270,6 +270,10 @@
     devices: [],
     connections: [],
     settings: { ...DEFAULT_SETTINGS },
+    auth: {
+      username: (window.PAMANTAU_AUTH && window.PAMANTAU_AUTH.username) || '',
+      logged_in: !!(window.PAMANTAU_AUTH && window.PAMANTAU_AUTH.logged_in),
+    },
     stats: {},
     selectedId: null,
     selectedIds: new Set(),
@@ -505,6 +509,31 @@
     setStatusOfflineColorText: document.getElementById('setStatusOfflineColorText'),
     setStatusUnknownColor: document.getElementById('setStatusUnknownColor'),
     setStatusUnknownColorText: document.getElementById('setStatusUnknownColorText'),
+    topUserChip: document.getElementById('topUserChip'),
+    btnLogout: document.getElementById('btnLogout'),
+    accountCurrentUsername: document.getElementById('accountCurrentUsername'),
+    accountAvatar: document.getElementById('accountAvatar'),
+    accountChangePill: document.getElementById('accountChangePill'),
+    accountOldPassword: document.getElementById('accountOldPassword'),
+    accountNewUsername: document.getElementById('accountNewUsername'),
+    accountNewPassword: document.getElementById('accountNewPassword'),
+    accountConfirmPassword: document.getElementById('accountConfirmPassword'),
+    accountConfirmField: document.getElementById('accountConfirmField'),
+    accountPasswordGrid: document.getElementById('accountPasswordGrid'),
+    accountOldHint: document.getElementById('accountOldHint'),
+    accountNewHint: document.getElementById('accountNewHint'),
+    accountConfirmHint: document.getElementById('accountConfirmHint'),
+    accountStrength: document.getElementById('accountStrength'),
+    accountStrengthLabel: document.getElementById('accountStrengthLabel'),
+    accountCheckOld: document.getElementById('accountCheckOld'),
+    accountCheckLength: document.getElementById('accountCheckLength'),
+    accountCheckMatch: document.getElementById('accountCheckMatch'),
+    accountCheckReady: document.getElementById('accountCheckReady'),
+    accountChecklist: document.getElementById('accountChecklist'),
+    accountStatus: document.getElementById('accountStatus'),
+    btnSaveAccount: document.getElementById('btnSaveAccount'),
+    btnResetAccount: document.getElementById('btnResetAccount'),
+    accountSection: document.getElementById('accountSection'),
     btnReports: document.getElementById('btnReports'),
     ctxOpenWrap: document.getElementById('ctxOpenWrap'),
     ctxOpenTrigger: document.getElementById('ctxOpenTrigger'),
@@ -1070,7 +1099,7 @@
     } else if (typeof methodOrOpts === 'string') {
       method = methodOrOpts;
     }
-    const opts = { method, headers: {} };
+    const opts = { method, headers: {}, credentials: 'include' };
     if (signal) opts.signal = signal;
     let url = `${API}?action=${encodeURIComponent(action)}`;
     if (payload !== null) {
@@ -1079,11 +1108,351 @@
       opts.body = JSON.stringify({ action, ...payload });
     }
     const res = await fetch(url, opts);
-    const data = await res.json();
+    let data = {};
+    try {
+      data = await res.json();
+    } catch (_) {
+      data = {};
+    }
+    if (res.status === 401) {
+      window.location.href = 'login.php';
+      throw new Error(data.error || 'Unauthorized');
+    }
     if (!res.ok || data.ok === false) {
       throw new Error(data.error || 'Request gagal');
     }
     return data;
+  }
+
+  function applyAuthPayload(auth) {
+    const next = auth && typeof auth === 'object' ? auth : {};
+    state.auth = {
+      username: String(next.username || ''),
+      logged_in: !!next.logged_in,
+    };
+    syncAuthUi();
+  }
+
+  function syncAuthUi() {
+    const username = state.auth && state.auth.username ? state.auth.username : '';
+    if (el.topUserChip) el.topUserChip.textContent = username;
+    if (el.accountCurrentUsername) el.accountCurrentUsername.textContent = username || '—';
+    if (el.accountAvatar) {
+      el.accountAvatar.textContent = (username || 'A').charAt(0).toUpperCase();
+    }
+  }
+
+  let accountOldPasswordVerified = false;
+  let accountOldPasswordVerifiedValue = '';
+  let accountOldPasswordVerifyToken = 0;
+  let accountOldPasswordVerifyTimer = null;
+
+  function clearAccountOldPasswordVerifyTimer() {
+    if (accountOldPasswordVerifyTimer) {
+      clearTimeout(accountOldPasswordVerifyTimer);
+      accountOldPasswordVerifyTimer = null;
+    }
+  }
+
+  function scheduleAccountOldPasswordVerify(immediate = false) {
+    clearAccountOldPasswordVerifyTimer();
+    const value = String(el.accountOldPassword?.value || '');
+    if (!value) {
+      accountOldPasswordVerifyToken += 1;
+      accountOldPasswordVerified = false;
+      accountOldPasswordVerifiedValue = '';
+      setAccountPasswordFieldsLocked(true);
+      setAccountHint(el.accountOldHint, '', '');
+      setAccountFieldState(el.accountOldPassword, '');
+      syncAccountFormUi();
+      return;
+    }
+    if (immediate) {
+      verifyAccountOldPassword();
+      return;
+    }
+    setAccountHint(el.accountOldHint, t('auth.old_password_checking'), '');
+    setAccountFieldState(el.accountOldPassword, '');
+    accountOldPasswordVerifyTimer = setTimeout(() => {
+      accountOldPasswordVerifyTimer = null;
+      verifyAccountOldPassword();
+    }, 350);
+  }
+
+  function clearAccountForm() {
+    if (el.accountOldPassword) el.accountOldPassword.value = '';
+    if (el.accountNewPassword) el.accountNewPassword.value = '';
+    if (el.accountConfirmPassword) el.accountConfirmPassword.value = '';
+    clearAccountOldPasswordVerifyTimer();
+    accountOldPasswordVerifyToken += 1;
+    accountOldPasswordVerified = false;
+    accountOldPasswordVerifiedValue = '';
+    setAccountPasswordFieldsLocked(true);
+    if (el.accountSection) {
+      el.accountSection.querySelectorAll('.account-visibility.is-shown').forEach((btn) => {
+        const id = btn.getAttribute('data-toggle-password');
+        const input = id ? document.getElementById(id) : null;
+        if (input) input.type = 'password';
+        btn.classList.remove('is-shown');
+        btn.setAttribute('aria-label', t('auth.show_password'));
+        btn.setAttribute('title', t('auth.show_password'));
+      });
+    }
+    syncAccountFormUi();
+  }
+
+  function fillAccountForm() {
+    if (el.accountCurrentUsername) {
+      el.accountCurrentUsername.textContent = state.auth && state.auth.username ? state.auth.username : '—';
+    }
+    if (el.accountAvatar) {
+      const username = state.auth && state.auth.username ? state.auth.username : 'A';
+      el.accountAvatar.textContent = username.charAt(0).toUpperCase();
+    }
+    if (el.accountNewUsername) {
+      el.accountNewUsername.value = state.auth && state.auth.username ? state.auth.username : '';
+    }
+    clearAccountForm();
+  }
+
+  function passwordStrength(value) {
+    const pass = String(value || '');
+    if (!pass) return { level: 0, label: '' };
+    let score = 0;
+    if (pass.length >= 6) score += 1;
+    if (pass.length >= 10 || (/[A-Z]/.test(pass) && /[a-z]/.test(pass))) score += 1;
+    if (/\d/.test(pass) || /[^A-Za-z0-9]/.test(pass)) score += 1;
+    const level = Math.max(1, Math.min(3, score));
+    const labels = {
+      1: t('auth.strength_weak'),
+      2: t('auth.strength_fair'),
+      3: t('auth.strength_strong'),
+    };
+    return { level, label: labels[level] || '' };
+  }
+
+  function setAccountHint(node, text, kind) {
+    if (!node) return;
+    node.textContent = text || '';
+    node.classList.toggle('is-error', kind === 'error');
+    node.classList.toggle('is-ok', kind === 'ok');
+  }
+
+  function setAccountFieldState(input, stateName) {
+    const field = input && input.closest ? input.closest('.account-field') : null;
+    if (!field) return;
+    field.classList.toggle('is-valid', stateName === 'valid');
+    field.classList.toggle('is-invalid', stateName === 'invalid');
+  }
+
+  function setAccountCheck(node, done) {
+    if (!node) return;
+    node.classList.toggle('is-done', !!done);
+  }
+
+  function setAccountStatus(text, kind) {
+    if (!el.accountStatus) return;
+    el.accountStatus.textContent = text || '';
+    el.accountStatus.classList.toggle('is-error', kind === 'error');
+    el.accountStatus.classList.toggle('is-ok', kind === 'ok');
+  }
+
+  function isAccountPasswordFieldsLocked() {
+    return !!(el.accountPasswordGrid && el.accountPasswordGrid.hidden);
+  }
+
+  function setAccountPasswordFieldsLocked(locked) {
+    if (!el.accountPasswordGrid) return;
+    const lock = !!locked;
+    el.accountPasswordGrid.hidden = lock;
+
+    [el.accountNewPassword, el.accountConfirmPassword].forEach((input) => {
+      if (!input) return;
+      if (lock) {
+        input.value = '';
+        input.type = 'password';
+      }
+    });
+
+    el.accountPasswordGrid.querySelectorAll('.account-visibility').forEach((btn) => {
+      btn.classList.remove('is-shown');
+      btn.setAttribute('aria-label', t('auth.show_password'));
+      btn.setAttribute('title', t('auth.show_password'));
+    });
+
+    if (lock) {
+      setAccountHint(el.accountNewHint, '', '');
+      setAccountHint(el.accountConfirmHint, '', '');
+      setAccountFieldState(el.accountNewPassword, '');
+      setAccountFieldState(el.accountConfirmPassword, '');
+      if (el.accountStrength) el.accountStrength.hidden = true;
+    }
+  }
+
+  async function verifyAccountOldPassword() {
+    const value = String(el.accountOldPassword?.value || '');
+    const token = ++accountOldPasswordVerifyToken;
+
+    if (!value) {
+      accountOldPasswordVerified = false;
+      accountOldPasswordVerifiedValue = '';
+      setAccountPasswordFieldsLocked(true);
+      syncAccountFormUi();
+      return false;
+    }
+
+    if (accountOldPasswordVerified && value === accountOldPasswordVerifiedValue) {
+      setAccountPasswordFieldsLocked(false);
+      syncAccountFormUi();
+      return true;
+    }
+
+    setAccountHint(el.accountOldHint, t('auth.old_password_checking'), '');
+    setAccountFieldState(el.accountOldPassword, '');
+
+    try {
+      await api('verify_password', { password: value });
+      if (token !== accountOldPasswordVerifyToken) return false;
+      if (String(el.accountOldPassword?.value || '') !== value) return false;
+
+      accountOldPasswordVerified = true;
+      accountOldPasswordVerifiedValue = value;
+      setAccountHint(el.accountOldHint, t('auth.old_password_ok'), 'ok');
+      setAccountFieldState(el.accountOldPassword, 'valid');
+      setAccountPasswordFieldsLocked(false);
+      syncAccountFormUi();
+      return true;
+    } catch (_) {
+      if (token !== accountOldPasswordVerifyToken) return false;
+      accountOldPasswordVerified = false;
+      accountOldPasswordVerifiedValue = '';
+      setAccountPasswordFieldsLocked(true);
+      setAccountHint(el.accountOldHint, t('auth.old_password_wrong'), 'error');
+      setAccountFieldState(el.accountOldPassword, 'invalid');
+      syncAccountFormUi();
+      return false;
+    }
+  }
+
+  function getAccountFormState() {
+    const currentUsername = String(state.auth && state.auth.username ? state.auth.username : '').trim();
+    const oldPassword = String(el.accountOldPassword?.value || '');
+    const newUsername = String(el.accountNewUsername?.value || '').trim();
+    const unlocked = !isAccountPasswordFieldsLocked();
+    const newPassword = unlocked ? String(el.accountNewPassword?.value || '') : '';
+    const confirmPassword = unlocked ? String(el.accountConfirmPassword?.value || '') : '';
+    const usernameOk = newUsername.length > 0;
+    const usernameChanged = usernameOk && newUsername !== currentUsername;
+    const oldOk = oldPassword.length > 0;
+    const oldVerified = accountOldPasswordVerified
+      && oldPassword !== ''
+      && oldPassword === accountOldPasswordVerifiedValue;
+    const lengthOk = newPassword.length >= 6;
+    const matchOk = newPassword.length > 0 && newPassword === confirmPassword;
+    const dirty = usernameChanged
+      || oldOk
+      || newPassword.length > 0
+      || confirmPassword.length > 0;
+    const ready = oldVerified && usernameOk && lengthOk && matchOk;
+    return {
+      currentUsername,
+      oldPassword,
+      newUsername,
+      newPassword,
+      confirmPassword,
+      unlocked,
+      usernameOk,
+      usernameChanged,
+      oldOk,
+      oldVerified,
+      lengthOk,
+      matchOk,
+      dirty,
+      ready,
+      strength: passwordStrength(newPassword),
+    };
+  }
+
+  function syncAccountFormUi() {
+    const form = getAccountFormState();
+
+    setAccountCheck(el.accountCheckOld, form.oldVerified);
+    setAccountCheck(el.accountCheckLength, form.lengthOk);
+    setAccountCheck(el.accountCheckMatch, form.matchOk);
+    setAccountCheck(el.accountCheckReady, form.ready);
+
+    if (el.accountChangePill) el.accountChangePill.hidden = !form.usernameChanged;
+    if (el.accountChecklist) el.accountChecklist.hidden = !form.dirty;
+    if (el.btnResetAccount) {
+      el.btnResetAccount.hidden = !form.dirty;
+      el.btnResetAccount.setAttribute('aria-hidden', form.dirty ? 'false' : 'true');
+    }
+    if (el.btnSaveAccount) {
+      el.btnSaveAccount.hidden = !form.dirty;
+      el.btnSaveAccount.setAttribute('aria-hidden', form.dirty ? 'false' : 'true');
+      if (!el.btnSaveAccount.classList.contains('is-busy')) {
+        el.btnSaveAccount.disabled = !form.ready;
+      }
+    }
+
+    if (el.accountStrength) {
+      el.accountStrength.hidden = form.newPassword.length === 0;
+      el.accountStrength.dataset.level = String(form.strength.level || 0);
+    }
+    if (el.accountStrengthLabel) {
+      el.accountStrengthLabel.textContent = form.strength.label || '';
+    }
+
+    if (!form.oldOk && form.dirty) {
+      setAccountHint(el.accountOldHint, t('auth.old_password_required'), 'error');
+      setAccountFieldState(el.accountOldPassword, 'invalid');
+    } else if (form.oldVerified) {
+      setAccountHint(el.accountOldHint, t('auth.old_password_ok'), 'ok');
+      setAccountFieldState(el.accountOldPassword, 'valid');
+    } else if (!form.oldOk) {
+      setAccountHint(el.accountOldHint, '', '');
+      setAccountFieldState(el.accountOldPassword, '');
+    }
+
+    if (!form.usernameOk) {
+      setAccountFieldState(el.accountNewUsername, 'invalid');
+    } else if (form.usernameChanged) {
+      setAccountFieldState(el.accountNewUsername, 'valid');
+    } else {
+      setAccountFieldState(el.accountNewUsername, '');
+    }
+
+    if (form.newPassword && !form.lengthOk) {
+      setAccountHint(el.accountNewHint, t('auth.password_min'), 'error');
+      setAccountFieldState(el.accountNewPassword, 'invalid');
+    } else if (form.lengthOk) {
+      setAccountHint(el.accountNewHint, '', '');
+      setAccountFieldState(el.accountNewPassword, 'valid');
+    } else {
+      setAccountHint(el.accountNewHint, '', '');
+      setAccountFieldState(el.accountNewPassword, '');
+    }
+
+    if (form.confirmPassword && !form.matchOk) {
+      setAccountHint(el.accountConfirmHint, t('auth.password_mismatch'), 'error');
+      setAccountFieldState(el.accountConfirmPassword, 'invalid');
+    } else if (form.matchOk) {
+      setAccountHint(el.accountConfirmHint, t('auth.match_ok'), 'ok');
+      setAccountFieldState(el.accountConfirmPassword, 'valid');
+    } else {
+      setAccountHint(el.accountConfirmHint, '', '');
+      setAccountFieldState(el.accountConfirmPassword, '');
+    }
+
+    if (form.ready) {
+      setAccountStatus(t('auth.ready_hint'), 'ok');
+    } else if (form.dirty) {
+      setAccountStatus(t('auth.form_incomplete'), '');
+    } else {
+      setAccountStatus('', '');
+    }
+
+    return form;
   }
 
   function isAbortError(err) {
@@ -3770,33 +4139,39 @@
       return;
     }
     if (act === 'pack-h') {
+      // Spacing follows full visual bounds (Tampilan Komponen), but the shared
+      // row uses anchor/tile Y so rata kiri/kanan/tengah tetap konsisten.
       const sorted = [...selected].sort((a, b) => {
-        const ba = deviceAnchorBox(a);
-        const bb = deviceAnchorBox(b);
+        const ba = deviceBounds(a);
+        const bb = deviceBounds(b);
         return ba.x - bb.x || ba.y - bb.y;
       });
-      let x = deviceAnchorBox(sorted[0]).x;
-      const y = sorted.reduce((s, d) => s + deviceAnchorBox(d).y, 0) / sorted.length;
+      let fullX = deviceBounds(sorted[0]).x;
+      const anchorY = sorted.reduce((s, d) => s + deviceAnchorBox(d).y, 0) / sorted.length;
       sorted.forEach((d) => {
-        const b = deviceAnchorBox(d);
-        setDeviceAnchorPos(d, x, y);
-        x += b.w + gap;
+        const full = deviceBounds(d);
+        const anchor = deviceAnchorBox(d);
+        const anchorX = fullX + (anchor.x - full.x);
+        setDeviceAnchorPos(d, anchorX, anchorY);
+        fullX += deviceBounds(d).w + gap;
       });
       await commitArrange(selected, 'Susun baris');
       return;
     }
     if (act === 'pack-v') {
       const sorted = [...selected].sort((a, b) => {
-        const ba = deviceAnchorBox(a);
-        const bb = deviceAnchorBox(b);
+        const ba = deviceBounds(a);
+        const bb = deviceBounds(b);
         return ba.y - bb.y || ba.x - bb.x;
       });
-      const x = sorted.reduce((s, d) => s + deviceAnchorBox(d).x, 0) / sorted.length;
-      let y = deviceAnchorBox(sorted[0]).y;
+      const anchorX = sorted.reduce((s, d) => s + deviceAnchorBox(d).x, 0) / sorted.length;
+      let fullY = deviceBounds(sorted[0]).y;
       sorted.forEach((d) => {
-        const b = deviceAnchorBox(d);
-        setDeviceAnchorPos(d, x, y);
-        y += b.h + gap;
+        const full = deviceBounds(d);
+        const anchor = deviceAnchorBox(d);
+        const anchorY = fullY + (anchor.y - full.y);
+        setDeviceAnchorPos(d, anchorX, anchorY);
+        fullY += deviceBounds(d).h + gap;
       });
       await commitArrange(selected, 'Susun kolom');
     }
@@ -4158,11 +4533,13 @@
     if (allBtn) allBtn.disabled = isSelect;
 
     el.editCtxMenu.classList.remove('hidden');
-    const pad = 8;
+    el.editCtxMenu.style.left = '-9999px';
+    el.editCtxMenu.style.top = '0px';
     const mw = el.editCtxMenu.offsetWidth || 180;
     const mh = el.editCtxMenu.offsetHeight || 160;
-    el.editCtxMenu.style.left = Math.min(clientX, window.innerWidth - mw - pad) + 'px';
-    el.editCtxMenu.style.top = Math.min(clientY, window.innerHeight - mh - pad) + 'px';
+    const pos = clampCtxMenuPosition(clientX, clientY, mw, mh);
+    el.editCtxMenu.style.left = `${pos.left}px`;
+    el.editCtxMenu.style.top = `${pos.top}px`;
   }
 
   async function runEditCtxAction(act) {
@@ -4233,7 +4610,7 @@
 
   function closeCtxSubmenu(wrap, trigger) {
     if (!wrap) return;
-    wrap.classList.remove('open', 'fly-left');
+    wrap.classList.remove('open', 'fly-left', 'fly-up');
     if (trigger) trigger.setAttribute('aria-expanded', 'false');
   }
 
@@ -4260,13 +4637,50 @@
     closeCtxLinkType();
   }
 
+  function measureCtxSubmenuHeight(submenu) {
+    if (!submenu) return 320;
+    if (submenu.offsetHeight > 8) return submenu.offsetHeight;
+
+    // Measure without leaving inline styles that would fight CSS hover/open rules.
+    const probe = submenu.cloneNode(true);
+    probe.style.cssText = [
+      'position:absolute',
+      'left:-99999px',
+      'top:0',
+      'display:flex',
+      'visibility:hidden',
+      'pointer-events:none',
+      'z-index:-1',
+    ].join(';');
+    document.body.appendChild(probe);
+    const height = probe.offsetHeight || 320;
+    probe.remove();
+    return height;
+  }
+
   function positionCtxSubmenu(wrap) {
-    if (!wrap) return;
-    wrap.classList.remove('fly-left');
-    const rect = el.ctxMenu.getBoundingClientRect();
-    const subW = 248;
-    if (rect.right + subW > window.innerWidth - 8) {
+    if (!wrap || !el.ctxMenu) return;
+    wrap.classList.remove('fly-left', 'fly-up');
+    const submenu = wrap.querySelector('.ctx-submenu');
+    const trigger = wrap.querySelector('.ctx-submenu-trigger');
+    if (!submenu || !trigger) return;
+
+    const pad = 8;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const menuRect = el.ctxMenu.getBoundingClientRect();
+    const triggerRect = trigger.getBoundingClientRect();
+    const subW = Math.max(submenu.offsetWidth || 248, 248);
+    const subH = measureCtxSubmenuHeight(submenu);
+
+    if (menuRect.right + subW > vw - pad) {
       wrap.classList.add('fly-left');
+    }
+
+    // Default submenu anchors near the trigger top; flip up when it would clip.
+    const projectedBottom = triggerRect.top - 6 + subH;
+    if (projectedBottom > vh - pad) {
+      wrap.classList.add('fly-up');
     }
   }
 
@@ -4286,18 +4700,66 @@
     positionCtxSubmenu(el.ctxLinkTypeWrap);
   }
 
+  function clampCtxMenuPosition(x, y, mw, mh) {
+    const pad = 8;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left = x;
+    let top = y;
+
+    // Prefer flipping above the cursor when there is not enough room below.
+    if (y + mh + pad > vh && y - mh >= pad) {
+      top = y - mh;
+    }
+
+    left = Math.min(Math.max(pad, left), Math.max(pad, vw - mw - pad));
+    top = Math.min(Math.max(pad, top), Math.max(pad, vh - mh - pad));
+    return { left, top };
+  }
+
   function placeCtx(x, y) {
     hideEditCtx();
     el.ctxMenu.classList.remove('hidden');
-    const pad = 8;
-    const mw = el.ctxMenu.offsetWidth || 190;
-    const mh = el.ctxMenu.offsetHeight || 180;
-    el.ctxMenu.style.left = Math.min(x, window.innerWidth - mw - pad) + 'px';
-    el.ctxMenu.style.top = Math.min(y, window.innerHeight - mh - pad) + 'px';
+    // Park off-screen briefly so we can measure real size before clamping.
+    el.ctxMenu.style.left = '-9999px';
+    el.ctxMenu.style.top = '0px';
+
+    const mw = el.ctxMenu.offsetWidth || 220;
+    const mh = el.ctxMenu.offsetHeight || 240;
+    const pos = clampCtxMenuPosition(x, y, mw, mh);
+    el.ctxMenu.style.left = `${pos.left}px`;
+    el.ctxMenu.style.top = `${pos.top}px`;
+
     positionCtxOpen();
     positionCtxType();
     positionCtxArrange();
     positionCtxLinkType();
+
+    // Second pass after layout (multi-select / submenu labels can change height).
+    requestAnimationFrame(() => {
+      if (!el.ctxMenu || el.ctxMenu.classList.contains('hidden')) return;
+      const rect = el.ctxMenu.getBoundingClientRect();
+      const next = clampCtxMenuPosition(
+        x,
+        y,
+        rect.width || mw,
+        rect.height || mh,
+      );
+      // If cursor-based clamp still overflows (rare), pin to viewport edges.
+      const pad = 8;
+      const vh = window.innerHeight;
+      const vw = window.innerWidth;
+      let left = next.left;
+      let top = next.top;
+      if (top + rect.height > vh - pad) top = Math.max(pad, vh - rect.height - pad);
+      if (left + rect.width > vw - pad) left = Math.max(pad, vw - rect.width - pad);
+      el.ctxMenu.style.left = `${left}px`;
+      el.ctxMenu.style.top = `${top}px`;
+      positionCtxOpen();
+      positionCtxType();
+      positionCtxArrange();
+      positionCtxLinkType();
+    });
   }
 
   function updateCtxDeviceMode() {
@@ -6899,6 +7361,7 @@
 
   function openSettings() {
     fillSettingsForm();
+    fillAccountForm();
     el.modalSettings.classList.remove('hidden');
     el.modalSettings.setAttribute('aria-hidden', 'false');
   }
@@ -6906,6 +7369,7 @@
   function closeSettings() {
     el.modalSettings.classList.add('hidden');
     el.modalSettings.setAttribute('aria-hidden', 'true');
+    clearAccountForm();
   }
 
   let tgTokenDirty = false;
@@ -7987,12 +8451,13 @@ ${periodHtml}
           else if (code === 'ArrowUp' || e.key === 'ArrowUp') arrangeAct = 'align-top';
           else if (code === 'ArrowDown' || e.key === 'ArrowDown') arrangeAct = 'align-bottom';
         } else {
-          if (code === 'KeyE') arrangeAct = 'align-hcenter';
-          else if (code === 'KeyM') arrangeAct = 'align-vcenter';
-          else if (code === 'KeyH') arrangeAct = 'dist-h';
-          else if (code === 'KeyV') arrangeAct = 'dist-v';
-          else if (code === 'KeyR') arrangeAct = 'pack-h';
-          else if (code === 'KeyK') arrangeAct = 'pack-v';
+          const keyUpper = (e.key || '').toUpperCase();
+          if (code === 'KeyE' || keyUpper === 'E') arrangeAct = 'align-hcenter';
+          else if (code === 'KeyM' || keyUpper === 'M') arrangeAct = 'align-vcenter';
+          else if (code === 'KeyH' || keyUpper === 'H') arrangeAct = 'dist-h';
+          else if (code === 'KeyV' || keyUpper === 'V') arrangeAct = 'dist-v';
+          else if (code === 'KeyR' || keyUpper === 'R') arrangeAct = 'pack-h';
+          else if (code === 'KeyG' || keyUpper === 'G') arrangeAct = 'pack-v';
         }
         if (arrangeAct) {
           e.preventDefault();
@@ -8122,6 +8587,10 @@ ${periodHtml}
   // Keep flyouts open while interacting; don't let stage/document handlers race.
   el.ctxMenu.addEventListener('pointerdown', (e) => {
     e.stopPropagation();
+  });
+
+  el.ctxMenu.querySelectorAll('.ctx-submenu-wrap').forEach((wrap) => {
+    wrap.addEventListener('mouseenter', () => positionCtxSubmenu(wrap));
   });
 
   el.ctxMenu.addEventListener('click', async (e) => {
@@ -8346,10 +8815,6 @@ ${periodHtml}
       if (state.selectedIds.size) deleteDevice(null);
     });
   }
-  document.getElementById('btnPollNow').addEventListener('click', () => {
-    closeAllMenus();
-    poll(false);
-  });
   if (el.pollMeter) {
     el.pollMeter.addEventListener('click', () => {
       closeAllMenus();
@@ -9300,6 +9765,109 @@ ${periodHtml}
   });
   document.getElementById('btnCloseSettings').addEventListener('click', () => closeSettings());
 
+  if (el.btnLogout) {
+    el.btnLogout.addEventListener('click', () => {
+      el.btnLogout.disabled = true;
+      // Navigate immediately. login.php?logout=1 clears the session server-side
+      // so we never hang waiting for api/logout behind a locked poll session.
+      window.location.replace('login.php?logout=1');
+    });
+  }
+
+  if (el.accountSection) {
+    el.accountSection.querySelectorAll('[data-toggle-password]').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const id = btn.getAttribute('data-toggle-password');
+        const input = id ? document.getElementById(id) : null;
+        if (!input) return;
+        const show = input.type === 'password';
+        input.type = show ? 'text' : 'password';
+        btn.classList.toggle('is-shown', show);
+        const label = show ? t('auth.hide_password') : t('auth.show_password');
+        btn.setAttribute('aria-label', label);
+        btn.setAttribute('title', label);
+      });
+    });
+
+    [
+      el.accountNewUsername,
+      el.accountConfirmPassword,
+    ].forEach((input) => {
+      if (!input) return;
+      input.addEventListener('input', () => syncAccountFormUi());
+      input.addEventListener('blur', () => syncAccountFormUi());
+    });
+
+    if (el.accountOldPassword) {
+      el.accountOldPassword.addEventListener('input', () => {
+        // Invalidate any in-flight / previously accepted match while typing.
+        accountOldPasswordVerifyToken += 1;
+        accountOldPasswordVerified = false;
+        accountOldPasswordVerifiedValue = '';
+        setAccountPasswordFieldsLocked(true);
+        syncAccountFormUi();
+        scheduleAccountOldPasswordVerify(false);
+      });
+      el.accountOldPassword.addEventListener('blur', () => {
+        scheduleAccountOldPasswordVerify(true);
+      });
+      el.accountOldPassword.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          scheduleAccountOldPasswordVerify(true);
+        }
+      });
+    }
+
+    if (el.accountNewPassword) {
+      el.accountNewPassword.addEventListener('input', () => syncAccountFormUi());
+      el.accountNewPassword.addEventListener('blur', () => syncAccountFormUi());
+    }
+  }
+
+  if (el.btnResetAccount) {
+    el.btnResetAccount.addEventListener('click', () => {
+      fillAccountForm();
+      setAccountStatus('', '');
+    });
+  }
+
+  if (el.btnSaveAccount) {
+    el.btnSaveAccount.addEventListener('click', async () => {
+      const form = syncAccountFormUi();
+      if (!form.ready) {
+        toast(t('auth.form_incomplete'));
+        return;
+      }
+
+      el.btnSaveAccount.disabled = true;
+      el.btnSaveAccount.classList.add('is-busy');
+      setAccountStatus(t('auth.saving'), '');
+
+      try {
+        const data = await api('change_credentials', {
+          old_password: form.oldPassword,
+          new_password: form.newPassword,
+          new_username: form.newUsername,
+        });
+        applyAuthPayload(data.auth || {});
+        fillAccountForm();
+        setAccountStatus(t('auth.credentials_updated'), 'ok');
+        toast(t('auth.credentials_updated'));
+      } catch (err) {
+        const message = err.message || String(err);
+        setAccountStatus(message, 'error');
+        toast(message);
+        syncAccountFormUi();
+      } finally {
+        el.btnSaveAccount.classList.remove('is-busy');
+        syncAccountFormUi();
+      }
+    });
+  }
+
   if (el.tgBotToken) {
     el.tgBotToken.addEventListener('input', () => {
       tgTokenDirty = true;
@@ -10220,6 +10788,7 @@ ${periodHtml}
     window.addEventListener('resize', resize);
     selectDevice(null);
     await loadIcons();
+    syncAuthUi();
     try {
       const data = await api('bootstrap');
       state.devices = data.devices || [];

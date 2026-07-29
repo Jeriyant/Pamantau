@@ -1,5 +1,6 @@
 # Local / runtime
 database/pamantau.json
+database/auth_attempts.json
 database/*.lock
 database/background.lock
 .update-progress.json

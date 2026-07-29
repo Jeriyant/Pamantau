@@ -5,6 +5,20 @@
  * GET  update.php  → progress JSON (/tmp/pamantau-update-progress.json)
  * POST update.php  → run update.sh --force
  */
+require_once __DIR__ . '/includes/db.php';
+require_once __DIR__ . '/includes/auth.php';
+
+if (PHP_SAPI !== 'cli') {
+    pamantau_auth_boot();
+    pamantau_auth_ensure_bootstrap();
+    if (!pamantau_auth_logged_in()) {
+        http_response_code(401);
+        header('Content-Type: application/json; charset=utf-8');
+        echo json_encode(['ok' => false, 'error' => 'Unauthorized'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+}
+
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 header('Access-Control-Allow-Origin: *');

@@ -1,3 +1,19 @@
+<?php
+declare(strict_types=1);
+
+require_once __DIR__ . '/includes/db.php';
+require_once __DIR__ . '/includes/auth.php';
+
+pamantau_auth_boot();
+pamantau_auth_ensure_bootstrap();
+
+if (!pamantau_auth_logged_in()) {
+  header('Location: login.php');
+  exit;
+}
+
+$pamantauAuth = pamantau_auth_public_payload();
+?>
 <!DOCTYPE html>
 <html lang="id" data-theme="light">
 <head>
@@ -13,7 +29,7 @@
   <link rel="stylesheet" href="assets/css/update.css?v=<?= (int) @filemtime(__DIR__ . '/assets/css/update.css') ?>" />
 <?php
   $pamantauVersionFile = __DIR__ . '/version.json';
-  $pamantauVersion = '1.0.0';
+  $pamantauVersion = '1.2.0';
   if (is_file($pamantauVersionFile)) {
     $vj = json_decode((string) @file_get_contents($pamantauVersionFile), true);
     if (is_array($vj) && !empty($vj['version'])) {
@@ -22,6 +38,7 @@
   }
 ?>
   <script>window.PAMANTAU_VERSION = <?= json_encode($pamantauVersion, JSON_UNESCAPED_UNICODE) ?>;</script>
+  <script>window.PAMANTAU_AUTH = <?= json_encode($pamantauAuth, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;</script>
 </head>
 <body>
   <div id="app">
@@ -154,9 +171,9 @@
 
           <span class="tool-sep" aria-hidden="true"></span>
 
-          <button type="button" class="icon-tool" id="btnPollNow" title="Refresh status" data-i18n-title="nav.refresh_title">
-            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M19.5 12a7.5 7.5 0 1 1-2.1-5.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M19.5 4.5V10H14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
-            <span data-i18n="nav.refresh">Refresh</span>
+          <button type="button" class="icon-tool" id="btnLogout" title="Logout" data-i18n-title="auth.logout">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M10 6H6.5A1.5 1.5 0 0 0 5 7.5v9A1.5 1.5 0 0 0 6.5 18H10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M13 8.5 17 12l-4 3.5M8 12h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span data-i18n="auth.logout">Logout</span>
           </button>
         </div>
       </div>
@@ -166,6 +183,7 @@
           <span class="topbar-uptime-label" data-i18n="uptime.label">Waktu Aktif</span>
           <span class="topbar-uptime-value" id="serverUptimeValue">—</span>
         </div>
+        <div class="user-chip" id="topUserChip"><?= htmlspecialchars((string) ($pamantauAuth['username'] ?? ''), ENT_QUOTES, 'UTF-8') ?></div>
         <div class="poll-meter" id="pollMeter" role="button" tabindex="0" aria-pressed="true" title="Klik untuk on/off polling" data-i18n-title="poll.title" aria-label="Polling aktif" data-i18n-aria="poll.aria_on">
           <span class="poll-ring" aria-hidden="true">
             <svg viewBox="0 0 28 28" width="28" height="28">
@@ -635,7 +653,7 @@
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="8" width="5" height="8" rx="1" stroke="currentColor" stroke-width="1.7"/><rect x="9.5" y="8" width="5" height="8" rx="1" stroke="currentColor" stroke-width="1.7"/><rect x="15.5" y="8" width="5" height="8" rx="1" stroke="currentColor" stroke-width="1.7"/></svg>
             <span data-i18n="ctx.pack_h">Susun baris (gap tetap)</span>
           </button>
-          <button type="button" data-arrange="pack-v" title="Susun kolom (gap tetap) (Ctrl+Shift+K)" data-i18n-title="ctx.pack_v_title" data-shortcut-title="pack-v" role="menuitem">
+          <button type="button" data-arrange="pack-v" title="Susun kolom (gap tetap) (Ctrl+Shift+G)" data-i18n-title="ctx.pack_v_title" data-shortcut-title="pack-v" role="menuitem">
             <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="3.5" width="8" height="5" rx="1" stroke="currentColor" stroke-width="1.7"/><rect x="8" y="9.5" width="8" height="5" rx="1" stroke="currentColor" stroke-width="1.7"/><rect x="8" y="15.5" width="8" height="5" rx="1" stroke="currentColor" stroke-width="1.7"/></svg>
             <span data-i18n="ctx.pack_v">Susun kolom (gap tetap)</span>
           </button>
@@ -805,6 +823,91 @@
               <option value="sand" data-i18n="theme.sand">Sand</option>
             </select>
           </label>
+        </section>
+
+        <section class="settings-section account-section" id="accountSection">
+          <h3 data-i18n="auth.account_section">Akun</h3>
+          <p class="settings-desc" data-i18n="auth.account_desc">Ubah username admin dan password login.</p>
+
+          <div class="account-identity" id="accountIdentity">
+            <div class="account-avatar" id="accountAvatar" aria-hidden="true"><?= htmlspecialchars(strtoupper(substr((string) ($pamantauAuth['username'] ?? 'A'), 0, 1)), ENT_QUOTES, 'UTF-8') ?></div>
+            <div class="account-identity-meta">
+              <span class="account-identity-label" data-i18n="auth.current_username">Username saat ini</span>
+              <strong class="account-readonly" id="accountCurrentUsername"><?= htmlspecialchars((string) ($pamantauAuth['username'] ?? ''), ENT_QUOTES, 'UTF-8') ?></strong>
+            </div>
+            <span class="account-change-pill" id="accountChangePill" hidden data-i18n="auth.changes_pending">Username berubah</span>
+          </div>
+
+          <div class="settings-grid">
+            <label class="account-field">
+              <span data-i18n="auth.username">Username</span>
+              <div class="account-input-wrap">
+                <input type="text" id="accountNewUsername" autocomplete="username" spellcheck="false" />
+              </div>
+            </label>
+            <label class="account-field">
+              <span data-i18n="auth.old_password">Password lama</span>
+              <div class="account-input-wrap">
+                <input type="password" id="accountOldPassword" autocomplete="current-password" />
+                <button type="button" class="account-visibility" data-toggle-password="accountOldPassword" aria-label="Show password" title="Show password">
+                  <svg class="eye-on" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.7"/></svg>
+                  <svg class="eye-off" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 3l18 18M10.5 10.6A3 3 0 0 0 13.4 13.5M7.1 7.3C4.7 8.7 3 12 3 12s3.5 6.5 9.5 6.5c1.7 0 3.2-.4 4.5-1M16.8 16.2C19.2 14.8 21 12 21 12s-3.5-6.5-9.5-6.5c-.7 0-1.4.1-2 .2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                </button>
+              </div>
+              <small class="account-field-hint" id="accountOldHint"></small>
+            </label>
+          </div>
+
+          <div class="settings-grid account-password-grid" id="accountPasswordGrid" hidden>
+            <label class="account-field" id="accountNewPasswordField">
+              <span data-i18n="auth.new_password">Password baru</span>
+              <div class="account-input-wrap">
+                <input type="password" id="accountNewPassword" autocomplete="new-password" />
+                <button type="button" class="account-visibility" data-toggle-password="accountNewPassword" aria-label="Show password" title="Show password">
+                  <svg class="eye-on" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.7"/></svg>
+                  <svg class="eye-off" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 3l18 18M10.5 10.6A3 3 0 0 0 13.4 13.5M7.1 7.3C4.7 8.7 3 12 3 12s3.5 6.5 9.5 6.5c1.7 0 3.2-.4 4.5-1M16.8 16.2C19.2 14.8 21 12 21 12s-3.5-6.5-9.5-6.5c-.7 0-1.4.1-2 .2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                </button>
+              </div>
+              <div class="account-strength" id="accountStrength" hidden>
+                <div class="account-strength-bars" aria-hidden="true">
+                  <span></span><span></span><span></span>
+                </div>
+                <small id="accountStrengthLabel"></small>
+              </div>
+              <small class="account-field-hint" id="accountNewHint"></small>
+            </label>
+            <label class="account-field account-confirm-field" id="accountConfirmField">
+              <span data-i18n="auth.confirm_password">Konfirmasi password</span>
+              <div class="account-input-wrap">
+                <input type="password" id="accountConfirmPassword" autocomplete="new-password" />
+                <button type="button" class="account-visibility" data-toggle-password="accountConfirmPassword" aria-label="Show password" title="Show password">
+                  <svg class="eye-on" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.7"/></svg>
+                  <svg class="eye-off" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 3l18 18M10.5 10.6A3 3 0 0 0 13.4 13.5M7.1 7.3C4.7 8.7 3 12 3 12s3.5 6.5 9.5 6.5c1.7 0 3.2-.4 4.5-1M16.8 16.2C19.2 14.8 21 12 21 12s-3.5-6.5-9.5-6.5c-.7 0-1.4.1-2 .2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                </button>
+              </div>
+              <small class="account-field-hint" id="accountConfirmHint"></small>
+            </label>
+          </div>
+
+          <ul class="account-checklist" id="accountChecklist" aria-live="polite" hidden>
+            <li data-check="old" id="accountCheckOld"><span class="account-check-dot"></span><span data-i18n="auth.check_old">Password lama cocok</span></li>
+            <li data-check="length" id="accountCheckLength"><span class="account-check-dot"></span><span data-i18n="auth.check_length">Password baru ≥ 6 karakter</span></li>
+            <li data-check="match" id="accountCheckMatch"><span class="account-check-dot"></span><span data-i18n="auth.check_match">Konfirmasi cocok</span></li>
+            <li data-check="ready" id="accountCheckReady"><span class="account-check-dot"></span><span data-i18n="auth.check_ready">Siap disimpan</span></li>
+          </ul>
+
+          <div class="settings-actions account-actions">
+            <div class="settings-actions-left">
+              <button type="button" class="btn save" id="btnSaveAccount" disabled hidden>
+                <svg class="btn-ico account-save-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12.5l4.2 4.2L19 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                <span class="btn-label" data-i18n="auth.save_account">Simpan akun</span>
+              </button>
+              <button type="button" class="btn ghost" id="btnResetAccount" hidden>
+                <span class="btn-label" data-i18n="auth.reset_form">Batalkan</span>
+              </button>
+            </div>
+            <p class="account-status" id="accountStatus" role="status" aria-live="polite"></p>
+          </div>
         </section>
 
         <section class="settings-section" id="settingsUpdateSection">

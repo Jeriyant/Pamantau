@@ -1,14 +1,19 @@
 <?php
 declare(strict_types=1);
 
-header('Content-Type: application/json; charset=utf-8');
-header('Cache-Control: no-store');
-
 require_once __DIR__ . '/../includes/db.php';
+require_once __DIR__ . '/../includes/auth.php';
 require_once __DIR__ . '/../includes/network.php';
 require_once __DIR__ . '/../includes/telegram.php';
 require_once __DIR__ . '/../includes/topology_snapshot.php';
 require_once __DIR__ . '/../includes/poll.php';
+
+// Session must start BEFORE any output/headers so Set-Cookie (login/logout) works.
+pamantau_auth_boot();
+pamantau_auth_ensure_bootstrap();
+
+header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store');
 
 function json_out(mixed $data, int $code = 200): never
 {
@@ -131,10 +136,126 @@ if ($action === '' && isset($body['action'])) {
     $action = (string) $body['action'];
 }
 
+// logout is public so a half-dead session can still be cleared without a 401 loop.
+$publicActions = ['login', 'auth_status', 'logout'];
+if (!in_array($action, $publicActions, true)) {
+    pamantau_auth_require();
+}
+
+// Release the session file lock ASAP. Long actions (poll/scan) otherwise block
+// concurrent logout/login until they finish — which looks like endless loading.
+$sessionWriteActions = ['login', 'logout', 'change_credentials'];
+if (
+    !in_array($action, $sessionWriteActions, true)
+    && session_status() === PHP_SESSION_ACTIVE
+) {
+    session_write_close();
+}
+
 $validTypes = PAMANTAU_VALID_TYPES;
 
 try {
     switch ($action) {
+        case 'login': {
+            $status = pamantau_auth_rate_limit_status();
+            if ($status['locked']) {
+                json_out([
+                    'ok' => false,
+                    'error' => 'Account locked. Try again later.',
+                    'rate_limited' => true,
+                    'retry_after' => $status['retry_after'],
+                ], 429);
+            }
+
+            $username = trim((string) ($body['username'] ?? ''));
+            $password = (string) ($body['password'] ?? '');
+
+            if (!pamantau_auth_verify($username, $password)) {
+                $status = pamantau_auth_record_failure();
+                json_out([
+                    'ok' => false,
+                    'error' => $status['locked'] ? 'Account locked. Try again later.' : 'Login failed',
+                    'rate_limited' => $status['locked'],
+                    'retry_after' => $status['retry_after'],
+                ], $status['locked'] ? 429 : 401);
+            }
+
+            pamantau_auth_clear_failures();
+            pamantau_auth_login($username);
+            json_out([
+                'ok' => true,
+                'auth' => pamantau_auth_public_payload(),
+            ]);
+        }
+
+        case 'auth_status': {
+            json_out([
+                'ok' => true,
+                'auth' => pamantau_auth_public_payload(),
+            ]);
+        }
+
+        case 'logout': {
+            pamantau_auth_logout();
+            // Do not call pamantau_auth_public_payload() after destroy — avoid
+            // touching $_SESSION / accidentally re-opening the session.
+            json_out([
+                'ok' => true,
+                'auth' => [
+                    'username' => '',
+                    'logged_in' => false,
+                ],
+            ]);
+        }
+
+        case 'verify_password': {
+            $password = (string) ($body['password'] ?? '');
+            $auth = pamantau_read('auth', []);
+            $currentUsername = trim((string) ($auth['username'] ?? 'admin'));
+
+            if ($password === '' || !pamantau_auth_verify($currentUsername, $password)) {
+                json_out([
+                    'ok' => false,
+                    'valid' => false,
+                    'error' => 'Old password is incorrect',
+                ], 422);
+            }
+
+            json_out([
+                'ok' => true,
+                'valid' => true,
+            ]);
+        }
+
+        case 'change_credentials': {
+            $oldPassword = (string) ($body['old_password'] ?? '');
+            $newPassword = (string) ($body['new_password'] ?? '');
+            $newUsernameRaw = trim((string) ($body['new_username'] ?? ''));
+            $auth = pamantau_read('auth', []);
+            $currentUsername = trim((string) ($auth['username'] ?? 'admin'));
+
+            if (!pamantau_auth_verify($currentUsername, $oldPassword)) {
+                json_out(['ok' => false, 'error' => 'Old password is incorrect'], 422);
+            }
+            if (strlen($newPassword) < 6) {
+                json_out(['ok' => false, 'error' => 'New password must be at least 6 characters'], 422);
+            }
+
+            $nextUsername = $newUsernameRaw !== '' ? $newUsernameRaw : $currentUsername;
+            $store = pamantau_load_store();
+            $store['auth'] = [
+                'username' => $nextUsername,
+                'password_hash' => password_hash($newPassword, PASSWORD_DEFAULT),
+            ];
+            pamantau_save_store($store);
+            pamantau_auth_login($nextUsername);
+
+            json_out([
+                'ok' => true,
+                'auth' => pamantau_auth_public_payload(),
+            ]);
+        }
+
         case 'bootstrap': {
             $uptime = pamantau_uptime_payload();
             json_out([

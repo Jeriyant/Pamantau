@@ -336,6 +336,10 @@ function pamantau_default_store(): array
     return [
         'devices' => [],
         'connections' => [],
+        'auth' => [
+            'username' => 'admin',
+            'password_hash' => '',
+        ],
         'settings' => pamantau_default_settings(),
         'stats' => [],
         // Per-device daily poll aggregates (YYYY-MM-DD keys, server local TZ).
@@ -416,6 +420,11 @@ function pamantau_load_store(): array
         $data = pamantau_read_json_file(PAMANTAU_DB_FILE, null);
         if (is_array($data)) {
             $store = array_merge(pamantau_default_store(), $data);
+            if (!is_array($store['auth'] ?? null)) {
+                $store['auth'] = pamantau_default_store()['auth'];
+            } else {
+                $store['auth'] = array_merge(pamantau_default_store()['auth'], $store['auth']);
+            }
             $store['settings'] = pamantau_normalize_settings($store['settings'] ?? []);
             $store['devices'] = pamantau_normalize_devices($store['devices'] ?? []);
             $store['connections'] = pamantau_normalize_connections($store['connections'] ?? []);
@@ -446,6 +455,11 @@ function pamantau_save_store(array $store): bool
     }
 
     $payload = array_merge(pamantau_default_store(), $store);
+    if (!is_array($payload['auth'] ?? null)) {
+        $payload['auth'] = pamantau_default_store()['auth'];
+    } else {
+        $payload['auth'] = array_merge(pamantau_default_store()['auth'], $payload['auth']);
+    }
     $json = json_encode($payload, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
     if ($json === false) {
         return false;
