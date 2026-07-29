@@ -380,22 +380,26 @@ function pamantau_read_json_file(string $path, mixed $default = null): mixed
         return $default;
     }
 
-    $fp = fopen($path, 'rb');
-    if ($fp === false) {
-        return $default;
+    // Try up to 5 times in case of transient write locks (Windows file sharing)
+    for ($attempt = 0; $attempt < 5; $attempt++) {
+        $fp = @fopen($path, 'rb');
+        if ($fp !== false) {
+            @flock($fp, LOCK_SH);
+            $raw = @stream_get_contents($fp);
+            @flock($fp, LOCK_UN);
+            @fclose($fp);
+
+            if (is_string($raw) && $raw !== '') {
+                $data = json_decode($raw, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($data)) {
+                    return $data;
+                }
+            }
+        }
+        usleep(20000); // 20ms delay before retry
     }
 
-    flock($fp, LOCK_SH);
-    $raw = stream_get_contents($fp);
-    flock($fp, LOCK_UN);
-    fclose($fp);
-
-    if ($raw === false || $raw === '') {
-        return $default;
-    }
-
-    $data = json_decode($raw, true);
-    return json_last_error() === JSON_ERROR_NONE ? $data : $default;
+    return $default;
 }
 
 function pamantau_migrate_legacy_store(): array
@@ -413,7 +417,7 @@ function pamantau_migrate_legacy_store(): array
 function pamantau_load_store(): array
 {
     if (!is_dir(PAMANTAU_DB_DIR)) {
-        mkdir(PAMANTAU_DB_DIR, 0775, true);
+        @mkdir(PAMANTAU_DB_DIR, 0775, true);
     }
 
     if (is_file(PAMANTAU_DB_FILE)) {
@@ -430,9 +434,12 @@ function pamantau_load_store(): array
             $store['connections'] = pamantau_normalize_connections($store['connections'] ?? []);
             return $store;
         }
+        // If PAMANTAU_DB_FILE exists but failed to read transiently, NEVER overwrite it with defaults!
+        error_log('[Pamantau DB] Transient read error for pamantau.json - keeping existing structure');
+        return pamantau_default_store();
     }
 
-    // Migrate from old split JSON files once
+    // Migrate from old split JSON files once if main file does not exist at all
     $store = pamantau_migrate_legacy_store();
     $store['devices'] = pamantau_normalize_devices($store['devices'] ?? []);
     $store['connections'] = pamantau_normalize_connections($store['connections'] ?? []);
@@ -451,7 +458,7 @@ function pamantau_load_store(): array
 function pamantau_save_store(array $store): bool
 {
     if (!is_dir(PAMANTAU_DB_DIR)) {
-        mkdir(PAMANTAU_DB_DIR, 0775, true);
+        @mkdir(PAMANTAU_DB_DIR, 0775, true);
     }
 
     $payload = array_merge(pamantau_default_store(), $store);
@@ -465,18 +472,27 @@ function pamantau_save_store(array $store): bool
         return false;
     }
 
-    $fp = fopen(PAMANTAU_DB_FILE, 'cb');
+    // Atomic save: write to unique .tmp file, then replace target file
+    $tmpFile = PAMANTAU_DB_FILE . '.' . uniqid('tmp', true);
+    $fp = @fopen($tmpFile, 'wb');
     if ($fp === false) {
         return false;
     }
 
-    flock($fp, LOCK_EX);
-    ftruncate($fp, 0);
-    rewind($fp);
-    $ok = fwrite($fp, $json) !== false;
-    fflush($fp);
-    flock($fp, LOCK_UN);
-    fclose($fp);
+    @flock($fp, LOCK_EX);
+    @fwrite($fp, $json);
+    @fflush($fp);
+    @flock($fp, LOCK_UN);
+    @fclose($fp);
+
+    // On Windows, replace target atomically
+    if (str_starts_with(PHP_OS, 'WIN')) {
+        @unlink(PAMANTAU_DB_FILE);
+    }
+    $ok = @rename($tmpFile, PAMANTAU_DB_FILE);
+    if (!$ok) {
+        @unlink($tmpFile);
+    }
 
     return $ok;
 }

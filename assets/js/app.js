@@ -6576,7 +6576,9 @@
         }
         return;
       }
-      state.devices = data.devices;
+      if (Array.isArray(data.devices) && (data.devices.length > 0 || state.devices.length === 0)) {
+        state.devices = data.devices;
+      }
       state.stats = data.stats || state.stats;
       if (state.selectedId && isPropsModalOpen()) {
         const d = findDevice(state.selectedId);
