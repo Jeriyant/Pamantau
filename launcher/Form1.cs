@@ -20,6 +20,7 @@ namespace PamantauLauncher
 
         // UI Controls
         private Panel _headerPanel = null!;
+        private PictureBox _pbLogo = null!;
         private Label _lblTitle = null!;
         private Label _lblSubtitle = null!;
         private Label _lblStatusBadge = null!;
@@ -55,7 +56,7 @@ namespace PamantauLauncher
         {
             // Form Config
             this.Text = "Pamantau — Server Control Panel";
-            this.Size = new Size(620, 680);
+            this.Size = new Size(660, 710);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
             this.MaximizeBox = false;
@@ -63,11 +64,29 @@ namespace PamantauLauncher
             this.ForeColor = Color.FromArgb(241, 245, 249);
             this.Font = new Font("Segoe UI", 9.5F, FontStyle.Regular);
 
+            // Icon Setup
+            string iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
+            if (!File.Exists(iconPath))
+            {
+                iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "launcher", "app.ico");
+            }
+
+            Icon? appIcon = null;
+            if (File.Exists(iconPath))
+            {
+                try
+                {
+                    appIcon = new Icon(iconPath);
+                    this.Icon = appIcon;
+                }
+                catch (Exception) { }
+            }
+
             // System Tray Icon Setup
             _trayIcon = new NotifyIcon
             {
                 Text = "Pamantau Server Control Panel",
-                Icon = SystemIcons.Application,
+                Icon = appIcon ?? SystemIcons.Application,
                 Visible = true
             };
             var trayMenu = new ContextMenuStrip();
@@ -75,7 +94,7 @@ namespace PamantauLauncher
             trayMenu.Items.Add("Start / Stop Server", null, (s, e) => ToggleServer());
             trayMenu.Items.Add("-");
             trayMenu.Items.Add("Keluar", null, (s, e) => {
-                _trayIcon.Visible = false;
+                if (_trayIcon != null) _trayIcon.Visible = false;
                 StopServer();
                 Application.Exit();
             });
@@ -90,39 +109,51 @@ namespace PamantauLauncher
             _headerPanel = new Panel
             {
                 Location = new Point(0, 0),
-                Size = new Size(620, 90),
+                Size = new Size(660, 95),
                 BackColor = Color.FromArgb(30, 41, 59)
             };
 
+            _pbLogo = new PictureBox
+            {
+                Location = new Point(20, 18),
+                Size = new Size(58, 58),
+                SizeMode = PictureBoxSizeMode.Zoom
+            };
+            if (appIcon != null)
+            {
+                _pbLogo.Image = appIcon.ToBitmap();
+            }
+
             _lblTitle = new Label
             {
-                Text = "PAMANTU",
-                Location = new Point(20, 16),
+                Text = "PAMANTAU",
+                Location = new Point(90, 16),
                 AutoSize = true,
-                Font = new Font("Segoe UI", 16F, FontStyle.Bold),
+                Font = new Font("Segoe UI", 18F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(129, 140, 248)
             };
 
             _lblSubtitle = new Label
             {
-                Text = "Network & Host Monitoring — Standalone Web Server",
-                Location = new Point(22, 50),
+                Text = "Sistem Monitoring Jaringan & Host — Standalone Web Server",
+                Location = new Point(92, 54),
                 AutoSize = true,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
+                Font = new Font("Segoe UI", 9F, FontStyle.Regular),
                 ForeColor = Color.FromArgb(148, 163, 184)
             };
 
             _lblStatusBadge = new Label
             {
                 Text = "● SERVER MATI",
-                Location = new Point(440, 24),
-                Size = new Size(140, 36),
+                Location = new Point(480, 28),
+                Size = new Size(145, 38),
                 TextAlign = ContentAlignment.MiddleCenter,
                 Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
                 BackColor = Color.FromArgb(239, 68, 68), // Red
                 ForeColor = Color.White
             };
 
+            _headerPanel.Controls.Add(_pbLogo);
             _headerPanel.Controls.Add(_lblTitle);
             _headerPanel.Controls.Add(_lblSubtitle);
             _headerPanel.Controls.Add(_lblStatusBadge);
@@ -131,25 +162,27 @@ namespace PamantauLauncher
             _grpServer = new GroupBox
             {
                 Text = " Kontrol Server Web ",
-                Location = new Point(20, 105),
-                Size = new Size(564, 110),
+                Location = new Point(20, 110),
+                Size = new Size(604, 115),
                 ForeColor = Color.FromArgb(226, 232, 240)
             };
 
             _lblPort = new Label
             {
                 Text = "Port Web:",
-                Location = new Point(20, 35),
-                AutoSize = true
+                Location = new Point(20, 38),
+                Size = new Size(80, 24),
+                TextAlign = ContentAlignment.MiddleLeft
             };
 
             _numPort = new NumericUpDown
             {
-                Location = new Point(95, 32),
-                Size = new Size(90, 28),
+                Location = new Point(105, 34),
+                Size = new Size(95, 30),
                 Minimum = 80,
                 Maximum = 65535,
                 Value = 8080,
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
                 BackColor = Color.FromArgb(30, 41, 59),
                 ForeColor = Color.White
             };
@@ -158,8 +191,8 @@ namespace PamantauLauncher
             _btnToggleServer = new Button
             {
                 Text = "▶  START SERVER",
-                Location = new Point(200, 26),
-                Size = new Size(165, 40),
+                Location = new Point(215, 30),
+                Size = new Size(180, 42),
                 Font = new Font("Segoe UI", 10F, FontStyle.Bold),
                 BackColor = Color.FromArgb(34, 197, 94), // Green
                 ForeColor = Color.White,
@@ -170,10 +203,10 @@ namespace PamantauLauncher
 
             _btnOpenBrowser = new Button
             {
-                Text = "🌐 BUKA HALAMAN WEB",
-                Location = new Point(375, 26),
-                Size = new Size(170, 40),
-                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
+                Text = "🌐  BUKA BROWSER",
+                Location = new Point(405, 30),
+                Size = new Size(180, 42),
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
                 BackColor = Color.FromArgb(99, 102, 241), // Indigo
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
@@ -190,8 +223,8 @@ namespace PamantauLauncher
             _grpLinks = new GroupBox
             {
                 Text = " Alamat Akses Web (URL) ",
-                Location = new Point(20, 230),
-                Size = new Size(564, 130),
+                Location = new Point(20, 240),
+                Size = new Size(604, 135),
                 ForeColor = Color.FromArgb(226, 232, 240)
             };
 
@@ -199,60 +232,66 @@ namespace PamantauLauncher
             {
                 Text = "Localhost (PC Ini):",
                 Location = new Point(20, 35),
-                AutoSize = true
+                Size = new Size(150, 24),
+                TextAlign = ContentAlignment.MiddleLeft
             };
 
             _txtLocalhostUrl = new TextBox
             {
-                Location = new Point(160, 32),
-                Size = new Size(270, 28),
+                Location = new Point(175, 32),
+                Size = new Size(295, 28),
                 ReadOnly = true,
                 BackColor = Color.FromArgb(30, 41, 59),
-                ForeColor = Color.FromArgb(56, 189, 248)
+                ForeColor = Color.FromArgb(56, 189, 248),
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold)
             };
 
             _btnCopyLocalhost = new Button
             {
                 Text = "Salin",
-                Location = new Point(440, 30),
-                Size = new Size(100, 30),
+                Location = new Point(480, 30),
+                Size = new Size(105, 30),
                 BackColor = Color.FromArgb(51, 65, 85),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
             };
+            _btnCopyLocalhost.FlatAppearance.BorderSize = 0;
             _btnCopyLocalhost.Click += (s, e) => {
                 Clipboard.SetText(_txtLocalhostUrl.Text);
-                MessageBox.Show("Link Localhost berhasil disalin!", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("Link Localhost berhasil disalin ke clipboard!", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
             };
 
             _lblNetworkIpTitle = new Label
             {
                 Text = "IP Jaringan (LAN/Wi-Fi):",
                 Location = new Point(20, 80),
-                AutoSize = true
+                Size = new Size(150, 24),
+                TextAlign = ContentAlignment.MiddleLeft
             };
 
             _txtNetworkIpUrl = new TextBox
             {
-                Location = new Point(160, 77),
-                Size = new Size(270, 28),
+                Location = new Point(175, 77),
+                Size = new Size(295, 28),
                 ReadOnly = true,
                 BackColor = Color.FromArgb(30, 41, 59),
-                ForeColor = Color.FromArgb(74, 222, 128)
+                ForeColor = Color.FromArgb(74, 222, 128),
+                Font = new Font("Segoe UI", 9.5F, FontStyle.Bold)
             };
 
             _btnCopyNetworkIp = new Button
             {
                 Text = "Salin",
-                Location = new Point(440, 75),
-                Size = new Size(100, 30),
+                Location = new Point(480, 75),
+                Size = new Size(105, 30),
                 BackColor = Color.FromArgb(51, 65, 85),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
             };
+            _btnCopyNetworkIp.FlatAppearance.BorderSize = 0;
             _btnCopyNetworkIp.Click += (s, e) => {
                 Clipboard.SetText(_txtNetworkIpUrl.Text);
-                MessageBox.Show("Link IP Jaringan berhasil disalin!", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("Link IP Jaringan berhasil disalin ke clipboard!", "Info", MessageBoxButtons.OK, MessageBoxIcon.Information);
             };
 
             _grpLinks.Controls.Add(_lblLocalhostTitle);
@@ -266,15 +305,15 @@ namespace PamantauLauncher
             _grpLog = new GroupBox
             {
                 Text = " Log Aktivitas Server ",
-                Location = new Point(20, 375),
-                Size = new Size(564, 240),
+                Location = new Point(20, 390),
+                Size = new Size(604, 255),
                 ForeColor = Color.FromArgb(226, 232, 240)
             };
 
             _rtbLog = new RichTextBox
             {
                 Location = new Point(15, 25),
-                Size = new Size(534, 195),
+                Size = new Size(574, 215),
                 ReadOnly = true,
                 BackColor = Color.FromArgb(15, 23, 42),
                 ForeColor = Color.FromArgb(148, 163, 184),
@@ -503,8 +542,5 @@ namespace PamantauLauncher
                 _trayIcon.Dispose();
             }
         }
-
-        [System.Runtime.InteropServices.DllImport("gdi32.dll", EntryPoint = "CreateRoundRectRgn")]
-        private static extern IntPtr CreateRoundRectRgn(int nLeftRect, int nTopRect, int nRightRect, int nBottomRect, int nWidthEllipse, int nHeightEllipse);
     }
 }
