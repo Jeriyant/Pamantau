@@ -167,11 +167,11 @@ $theme = in_array((string) ($settings['theme'] ?? 'light'), ['light', 'dark', 's
       <form class="login-form" id="loginForm">
         <label>
           <span data-i18n="auth.username">Username</span>
-          <input type="text" id="loginUsername" name="username" autocomplete="username" required value="admin" />
+          <input type="text" id="loginUsername" name="username" autocomplete="username" required value="" />
         </label>
         <label>
           <span data-i18n="auth.password">Password</span>
-          <input type="password" id="loginPassword" name="password" autocomplete="current-password" required value="pamantau" />
+          <input type="password" id="loginPassword" name="password" autocomplete="current-password" required value="" />
         </label>
         <p class="login-error" id="loginError" role="alert"></p>
         <button type="submit" class="btn primary login-submit">
