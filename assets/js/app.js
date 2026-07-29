@@ -6560,8 +6560,7 @@
       }
       if (token !== state.pollToken) {
         if (auto && !isPollingEnabled()) return;
-        // Invalidated (delete / Scan Port) — only patch status/latency, never services
-        // (manual port scan results must not be overwritten by a discarded poll).
+        // Invalidated (delete / Scan Port) — only patch status/latency
         if (Array.isArray(data.results)) {
           const map = Object.fromEntries(state.devices.map((d) => [d.id, d]));
           for (const r of data.results) {
@@ -6571,13 +6570,24 @@
             d.latency = r.latency != null && Number.isFinite(Number(r.latency))
               ? Math.round(Number(r.latency))
               : r.latency;
+            if (r.services) d.services = r.services;
+            if (r.poll_count != null) d.poll_count = r.poll_count;
           }
           draw();
         }
         return;
       }
-      if (Array.isArray(data.devices) && (data.devices.length > 0 || state.devices.length === 0)) {
-        state.devices = data.devices;
+      if (Array.isArray(data.devices) && data.devices.length > 0) {
+        const pollMap = Object.fromEntries(data.devices.map((d) => [d.id, d]));
+        for (const d of state.devices) {
+          const updated = pollMap[d.id];
+          if (updated) {
+            d.status = updated.status;
+            d.latency = updated.latency;
+            if (updated.services) d.services = updated.services;
+            if (updated.poll_count != null) d.poll_count = updated.poll_count;
+          }
+        }
       }
       state.stats = data.stats || state.stats;
       if (state.selectedId && isPropsModalOpen()) {

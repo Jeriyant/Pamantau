@@ -434,22 +434,14 @@ function pamantau_load_store(): array
             $store['connections'] = pamantau_normalize_connections($store['connections'] ?? []);
             return $store;
         }
-        // If PAMANTAU_DB_FILE exists but failed to read transiently, NEVER overwrite it with defaults!
-        error_log('[Pamantau DB] Transient read error for pamantau.json - keeping existing structure');
-        return pamantau_default_store();
     }
 
     // Migrate from old split JSON files once if main file does not exist at all
     $store = pamantau_migrate_legacy_store();
     $store['devices'] = pamantau_normalize_devices($store['devices'] ?? []);
     $store['connections'] = pamantau_normalize_connections($store['connections'] ?? []);
-    pamantau_save_store($store);
-
-    foreach (['devices', 'connections', 'settings', 'stats'] as $key) {
-        $legacy = pamantau_legacy_path($key);
-        if (is_file($legacy)) {
-            @unlink($legacy);
-        }
+    if (!is_file(PAMANTAU_DB_FILE)) {
+        pamantau_save_store($store);
     }
 
     return $store;
@@ -472,27 +464,14 @@ function pamantau_save_store(array $store): bool
         return false;
     }
 
-    // Atomic save: write to unique .tmp file, then replace target file
+    // Safely write to temp file and overwrite PAMANTAU_DB_FILE without ever unlinking it first
     $tmpFile = PAMANTAU_DB_FILE . '.' . uniqid('tmp', true);
-    $fp = @fopen($tmpFile, 'wb');
-    if ($fp === false) {
+    if (@file_put_contents($tmpFile, $json, LOCK_EX) === false) {
         return false;
     }
 
-    @flock($fp, LOCK_EX);
-    @fwrite($fp, $json);
-    @fflush($fp);
-    @flock($fp, LOCK_UN);
-    @fclose($fp);
-
-    // On Windows, replace target atomically
-    if (str_starts_with(PHP_OS, 'WIN')) {
-        @unlink(PAMANTAU_DB_FILE);
-    }
-    $ok = @rename($tmpFile, PAMANTAU_DB_FILE);
-    if (!$ok) {
-        @unlink($tmpFile);
-    }
+    $ok = @copy($tmpFile, PAMANTAU_DB_FILE);
+    @unlink($tmpFile);
 
     return $ok;
 }
