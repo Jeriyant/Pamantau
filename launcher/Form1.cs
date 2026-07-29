@@ -455,13 +455,14 @@ namespace PamantauLauncher
                 var psi = new ProcessStartInfo
                 {
                     FileName = _phpExePath,
-                    Arguments = $"-S 0.0.0.0:{port} -t \"{_appRootDir}\"",
+                    Arguments = $"-d max_execution_time=60 -d memory_limit=128M -S 0.0.0.0:{port} -t \"{_appRootDir}\"",
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                     WorkingDirectory = _appRootDir
                 };
+                psi.EnvironmentVariables["PHP_CLI_SERVER_WORKERS"] = "8";
 
                 _phpProcess = new Process { StartInfo = psi };
                 _phpProcess.OutputDataReceived += (s, e) => { if (!string.IsNullOrEmpty(e.Data)) AppendLog(e.Data); };

@@ -12,6 +12,12 @@ require_once __DIR__ . '/../includes/poll.php';
 pamantau_auth_boot();
 pamantau_auth_ensure_bootstrap();
 
+// Release session lock early for read/poll actions so long-running requests do not block UI
+$action = (string) ($_GET['action'] ?? '');
+if ($action !== 'login' && $action !== 'logout' && session_status() === PHP_SESSION_ACTIVE) {
+    session_write_close();
+}
+
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
