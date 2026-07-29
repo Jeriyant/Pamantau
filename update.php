@@ -40,6 +40,53 @@ $progressFile = '/tmp/pamantau-update-progress.json';
 $legacyProgress = $dir . DIRECTORY_SEPARATOR . '.update-progress.json';
 
 if ($method === 'GET') {
+    if (($_GET['action'] ?? '') === 'check') {
+        $apiUrl = 'https://api.github.com/repos/Jeriyant/Pamantau/releases/latest';
+        $opts = [
+            'http' => [
+                'method' => 'GET',
+                'header' => "User-Agent: Pamantau-Server-Updater\r\nAccept: application/vnd.github+json\r\n",
+                'timeout' => 15,
+            ]
+        ];
+        $context = stream_context_create($opts);
+        $raw = @file_get_contents($apiUrl, false, $context);
+        if ($raw !== false) {
+            $data = json_decode($raw, true);
+            if (is_array($data) && !empty($data['tag_name'])) {
+                $tag = (string) $data['tag_name'];
+                $assets = $data['assets'] ?? [];
+                $dlUrl = null;
+                foreach ($assets as $a) {
+                    if (($a['name'] ?? '') === 'pamantau-dist.zip') {
+                        $dlUrl = $a['browser_download_url'] ?? null;
+                        break;
+                    }
+                }
+                if (!$dlUrl) {
+                    foreach ($assets as $a) {
+                        if (substr(strtolower((string)($a['name'] ?? '')), -4) === '.zip') {
+                            $dlUrl = $a['browser_download_url'] ?? null;
+                            break;
+                        }
+                    }
+                }
+                echo json_encode([
+                    'ok' => true,
+                    'tag' => $tag,
+                    'version' => ltrim($tag, 'vV'),
+                    'notes' => (string) ($data['body'] ?? ''),
+                    'htmlUrl' => (string) ($data['html_url'] ?? ''),
+                    'downloadUrl' => $dlUrl,
+                ], JSON_UNESCAPED_UNICODE);
+                exit;
+            }
+        }
+        http_response_code(502);
+        echo json_encode(['ok' => false, 'error' => 'Gagal mengambil metadata rilis dari GitHub'], JSON_UNESCAPED_UNICODE);
+        exit;
+    }
+
     foreach ([$progressFile, $legacyProgress] as $file) {
         if (!is_file($file)) {
             continue;

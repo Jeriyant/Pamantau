@@ -68,23 +68,46 @@
   }
 
   async function fetchLatestRelease(signal) {
-    const res = await fetch(GITHUB_RELEASES_API, {
-      headers: {
-        Accept: 'application/vnd.github+json',
-        'X-GitHub-Api-Version': '2022-11-28',
-      },
+    try {
+      const res = await fetch(GITHUB_RELEASES_API, {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+        },
+        signal,
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const tag = (data.tag_name || '').trim();
+        if (tag) {
+          return {
+            tag,
+            version: normalizeVersion(tag),
+            notes: String(data.body || '').replace(/^\uFEFF/, '').trim(),
+            htmlUrl: (data.html_url || '').trim() || `${GITHUB_REPO_URL}/releases`,
+            downloadUrl: findDistAsset(data.assets),
+          };
+        }
+      }
+    } catch (err) {
+      console.warn('[Pamantau update] Direct client GitHub fetch failed, trying server backend proxy:', err);
+    }
+
+    // Fallback: fetch via backend PHP proxy (update.php?action=check)
+    const backendRes = await fetch(`${getUpdateApiUrl()}?action=check`, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store',
       signal,
     });
-    if (!res.ok) throw new Error(`GitHub release check failed (${res.status})`);
-    const data = await res.json();
-    const tag = (data.tag_name || '').trim();
-    if (!tag) throw new Error('Release tag missing');
+    if (!backendRes.ok) throw new Error(`GitHub release check failed (${backendRes.status})`);
+    const bdata = await backendRes.json();
+    if (!bdata || !bdata.ok || !bdata.tag) throw new Error(bdata.error || 'Server release check failed');
     return {
-      tag,
-      version: normalizeVersion(tag),
-      notes: String(data.body || '').replace(/^\uFEFF/, '').trim(),
-      htmlUrl: (data.html_url || '').trim() || `${GITHUB_REPO_URL}/releases`,
-      downloadUrl: findDistAsset(data.assets),
+      tag: bdata.tag,
+      version: bdata.version,
+      notes: bdata.notes,
+      htmlUrl: bdata.htmlUrl,
+      downloadUrl: bdata.downloadUrl,
     };
   }
 
