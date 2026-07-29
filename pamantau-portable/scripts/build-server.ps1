@@ -25,5 +25,13 @@ if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $publishedExe -PathType
     throw 'Publishing PamantauServer.exe failed.'
 }
 
-Copy-Item -LiteralPath $publishedExe -Destination $targetExe -Force
-Write-Host "Completed: $targetExe"
+try {
+    Copy-Item -LiteralPath $publishedExe -Destination $targetExe -Force
+    Write-Host "Completed: $targetExe"
+}
+catch [System.IO.IOException] {
+    # The launcher locks its own executable while running. Keep the freshly
+    # published artifact available for package-release.ps1 instead of forcing
+    # the user to stop active monitoring just to build a release.
+    Write-Warning "PamantauServer.exe is currently running; using build artifact: $publishedExe"
+}

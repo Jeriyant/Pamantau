@@ -4,7 +4,7 @@ Monitor topologi jaringan langsung (PHP + vanilla JS).
 
 ## Versi
 
-Sumber versi: `version.json` (saat ini **1.3.0**).
+Sumber versi: `version.json` (saat ini **1.4.0**).
 
 ## Update dari GitHub (seperti FO-Simulator)
 
@@ -15,7 +15,16 @@ Sumber versi: `version.json` (saat ini **1.3.0**).
 
 Server Linux membutuhkan PHP `exec` + `bash` untuk `update.php` / `update.sh`. Folder `database/` dan file topology `*.json` di root **dipertahankan** saat update.
 
-## Monitoring v1.3.0
+## Topology & monitoring v1.4.0
+
+- File Save/Open hanya berisi struktur topologi lokal; counter, statistik, dan
+  riwayat polling tetap menjadi data otoritatif di database server.
+- Berganti topologi tidak lagi menghapus riwayat. Counter dipulihkan kembali
+  berdasarkan ID perangkat ketika topologi tersebut dibuka lagi.
+- Pengaturan polling ping dan scan port otomatis dipisahkan beserta jadwal,
+  timeout, dan batas paralelnya.
+- Tampilan pengaturan dirapikan dan ikon komponen memakai outline luar putih
+  serta hitam yang halus.
 
 - Ping status berjalan setiap 30 detik secara default, timeout 500 ms, dengan
   3–5 percobaan per siklus.

@@ -337,7 +337,7 @@ try {
         }
 
         case 'export_database': {
-            // Legacy alias — full store snapshot (Save/Save as now writes the same shape).
+            // Full server database export, separate from topology-only Save/Save as files.
             $store = pamantau_load_store();
             json_out([
                 'ok' => true,
@@ -376,17 +376,38 @@ try {
         case 'replace_topology': {
             $devices = is_array($body['devices'] ?? null) ? array_values($body['devices']) : [];
             $connections = is_array($body['connections'] ?? null) ? array_values($body['connections']) : [];
+            $store = pamantau_load_store();
+            $existingDevices = is_array($store['devices'] ?? null) ? $store['devices'] : [];
+            $serverStats = is_array($store['stats'] ?? null) ? $store['stats'] : [];
+            $existingById = [];
+            foreach ($existingDevices as $existingDevice) {
+                if (is_array($existingDevice) && !empty($existingDevice['id'])) {
+                    $existingById[(string) $existingDevice['id']] = $existingDevice;
+                }
+            }
             $cleanDevices = [];
             foreach ($devices as $device) {
                 if (!is_array($device) || empty($device['id'])) {
                     continue;
+                }
+                $deviceId = (string) $device['id'];
+                $existingDevice = $existingById[$deviceId] ?? null;
+                $serverPollCount = is_array($existingDevice)
+                    ? max(0, (int) ($existingDevice['poll_count'] ?? 0))
+                    : 0;
+                if (isset($serverStats[$deviceId]) && is_array($serverStats[$deviceId])) {
+                    $serverPollCount = max(
+                        $serverPollCount,
+                        pamantau_poll_total($serverStats[$deviceId]),
+                        max(0, (int) ($serverStats[$deviceId]['ping_total'] ?? 0))
+                    );
                 }
                 $type = strtolower((string) ($device['type'] ?? 'client'));
                 if (!in_array($type, $validTypes, true)) {
                     $type = 'client';
                 }
                 $cleanDevice = [
-                    'id' => (string) $device['id'],
+                    'id' => $deviceId,
                     'type' => $type,
                     'label' => trim((string) ($device['label'] ?? 'Device')),
                     'ip' => trim((string) ($device['ip'] ?? '')),
@@ -395,10 +416,15 @@ try {
                     'x' => (float) ($device['x'] ?? 120),
                     'y' => (float) ($device['y'] ?? 120),
                     'services' => array_values(array_map('intval', $device['services'] ?? [])),
-                    'status' => (string) ($device['status'] ?? 'unknown'),
-                    'latency' => $device['latency'] ?? null,
-                    'poll_count' => max(0, (int) ($device['poll_count'] ?? 0)),
+                    'status' => is_array($existingDevice)
+                        ? (string) ($existingDevice['status'] ?? 'unknown')
+                        : 'unknown',
+                    'latency' => is_array($existingDevice) ? ($existingDevice['latency'] ?? null) : null,
+                    'poll_count' => $serverPollCount,
                 ];
+                if (is_array($existingDevice) && !empty($existingDevice['ports_scanned_at'])) {
+                    $cleanDevice['ports_scanned_at'] = (string) $existingDevice['ports_scanned_at'];
+                }
                 $cleanDevices[] = $cleanDevice;
             }
             $ids = [];
@@ -424,37 +450,15 @@ try {
                     'link_type' => pamantau_normalize_link_type($conn['link_type'] ?? null),
                 ];
             }
-            pamantau_write('devices', $cleanDevices);
-            pamantau_write('connections', $cleanConnections);
-
             // Settings are app-level only (save_settings). Ignore any settings in payload
             // so Open / replace_topology never overwrite theme, language, poll, etc.
-            $settingsOut = pamantau_settings_for_client(pamantau_read('settings', []));
-
-            $statsOut = pamantau_read('stats', []);
-            if (array_key_exists('stats', $body) && is_array($body['stats'])) {
-                $statsOut = [];
-                foreach ($body['stats'] as $statId => $stat) {
-                    if (!is_array($stat)) {
-                        continue;
-                    }
-                    $statsOut[(string) $statId] = $stat;
-                }
-                pamantau_write('stats', $statsOut);
-
-                // Keep daily history only for devices that remain after replace.
-                $statsDaily = pamantau_read('stats_daily', []);
-                if (!is_array($statsDaily)) {
-                    $statsDaily = [];
-                }
-                $keptDaily = [];
-                foreach ($ids as $deviceId => $_) {
-                    if (isset($statsDaily[$deviceId]) && is_array($statsDaily[$deviceId])) {
-                        $keptDaily[$deviceId] = $statsDaily[$deviceId];
-                    }
-                }
-                pamantau_write('stats_daily', $keptDaily);
-            }
+            // Poll counters and all aggregate history are server-owned. Legacy
+            // `stats` payloads from old topology files are intentionally ignored.
+            $store['devices'] = $cleanDevices;
+            $store['connections'] = $cleanConnections;
+            pamantau_save_store($store);
+            $settingsOut = pamantau_settings_for_client($store['settings'] ?? []);
+            $statsOut = $serverStats;
 
             json_out([
                 'ok' => true,

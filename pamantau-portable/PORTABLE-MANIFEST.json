@@ -1,20 +1,20 @@
 {
   "package": {
     "name": "Pamantau Portable Server",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "platform": "Windows x64",
-    "builtAt": "2026-07-29T20:32:05+07:00"
+    "builtAt": "2026-07-29T23:05:38+07:00"
   },
   "application": {
     "name": "Pamantau",
-    "version": "1.3.0",
+    "version": "1.4.0",
     "sourceDirectory": "app"
   },
   "webserver": {
     "file": "PamantauServer.exe",
-    "version": "1.3.0.0",
-    "size": 82931957,
-    "sha256": "6a8965a08d9c9dd69df3e66801b603d78d723fdcbfc8d8b4c087dbc906e5a621",
+    "version": "1.4.0.0",
+    "size": 82931956,
+    "sha256": "0aba0e10b63812fddd48539fd434f7ac587392832499e7a8a73511bc7af6e5f2",
     "sourceDirectory": "server-src",
     "runtime": ".NET 8 self-contained",
     "engine": "Kestrel + PHP-CGI"

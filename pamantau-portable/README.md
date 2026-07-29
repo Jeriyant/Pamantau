@@ -36,8 +36,10 @@ HTTP without TLS.
 
 ## Data and backups
 
-- Active database: selected source directory under `database/`
-- Topology JSON: selected source directory under `*.json`
+- Active monitoring database and counters: selected server source directory
+  under `database/`
+- Topology JSON: local file selected through **Open**, **Save**, or **Save As**;
+  it does not contain or overwrite server polling counters and history
 - Webserver log: `data/logs/server.log`
 - PHP log: `data/logs/php-error.log`
 - Configuration: `data/server-config.json`

@@ -29,7 +29,7 @@ $pamantauAuth = pamantau_auth_public_payload();
   <link rel="stylesheet" href="assets/css/update.css?v=<?= (int) @filemtime(__DIR__ . '/assets/css/update.css') ?>" />
 <?php
   $pamantauVersionFile = __DIR__ . '/version.json';
-  $pamantauVersion = '1.3.0';
+  $pamantauVersion = '1.4.0';
   if (is_file($pamantauVersionFile)) {
     $vj = json_decode((string) @file_get_contents($pamantauVersionFile), true);
     if (is_array($vj) && !empty($vj['version'])) {
@@ -945,7 +945,14 @@ $pamantauAuth = pamantau_auth_public_payload();
           <h3 data-i18n="mon.section">Monitoring</h3>
           <p class="settings-desc" data-i18n="mon.desc">Polling status dan pemindaian port berjalan sebagai dua pekerjaan terpisah.</p>
           <div class="settings-subhead" data-i18n="mon.ping_job">Polling status (ping)</div>
-          <div class="settings-grid">
+          <label class="switch-row">
+            <span class="switch-text" data-i18n="mon.auto_poll">Polling otomatis (interval berkala)</span>
+            <span class="switch">
+              <input type="checkbox" id="setPollingEnabled" role="switch" />
+              <span class="slider" aria-hidden="true"></span>
+            </span>
+          </label>
+          <div class="settings-grid" id="pollingScheduleExtras" data-depends-on="polling-enabled">
             <label><span data-i18n="mon.poll_interval">Interval polling (detik)</span>
               <input type="number" id="setPollSec" min="2" max="60" step="1" />
             </label>
@@ -962,15 +969,15 @@ $pamantauAuth = pamantau_auth_public_payload();
               <input type="number" id="setPingCount" min="3" max="5" step="1" />
             </label>
           </div>
+
+          <div class="settings-subhead" data-i18n="mon.port_job">Pemindaian port otomatis</div>
           <label class="switch-row">
-            <span class="switch-text" data-i18n="mon.auto_poll">Polling otomatis (interval berkala)</span>
+            <span class="switch-text" data-i18n="mon.auto_port">Scan port otomatis (jadwal terpisah)</span>
             <span class="switch">
-              <input type="checkbox" id="setPollingEnabled" role="switch" />
+              <input type="checkbox" id="setPortScan" role="switch" />
               <span class="slider" aria-hidden="true"></span>
             </span>
           </label>
-
-          <div class="settings-subhead" data-i18n="mon.port_job">Pemindaian port otomatis</div>
           <div class="settings-grid" id="portScanScheduleExtras" data-depends-on="port-scan">
             <label><span data-i18n="mon.port_interval">Interval scan port (menit)</span>
               <input type="number" id="setPortScanIntervalMin" min="1" max="1440" step="1" />
@@ -982,13 +989,6 @@ $pamantauAuth = pamantau_auth_public_payload();
               <input type="number" id="setPortScanConcurrency" min="16" max="32" step="1" />
             </label>
           </div>
-          <label class="switch-row">
-            <span class="switch-text" data-i18n="mon.auto_port">Scan port otomatis (jadwal terpisah)</span>
-            <span class="switch">
-              <input type="checkbox" id="setPortScan" role="switch" />
-              <span class="slider" aria-hidden="true"></span>
-            </span>
-          </label>
         </section>
 
         <section class="settings-section">
@@ -1020,12 +1020,9 @@ $pamantauAuth = pamantau_auth_public_payload();
         </section>
 
         <section class="settings-section">
-          <h3 data-i18n="net.section">Pemindaian Jaringan</h3>
-          <p class="settings-desc" data-i18n="net.desc">Port umum untuk scan otomatis, Scan Port manual (rentang), dan discovery host lewat Scan Subnet. Tampilkan port di perangkat ada di Tampilan Komponen.</p>
-
-          <div class="settings-subhead" data-i18n="net.scan_port">Scan port</div>
-          <div class="port-table-wrap" id="portScanExtras" data-depends-on="port-scan">
-            <div class="port-table-label" data-i18n="net.common_ports">Port umum</div>
+          <h3 data-i18n="ports.section">Port Umum</h3>
+          <p class="settings-desc" data-i18n="ports.desc">Daftar port yang diperiksa oleh jadwal scan port otomatis.</p>
+          <div class="port-table-wrap" id="portScanExtras">
             <table class="port-table" id="commonPortsTable">
               <thead>
                 <tr>
@@ -1040,6 +1037,13 @@ $pamantauAuth = pamantau_auth_public_payload();
             <button type="button" class="btn ghost" id="btnAddCommonPort" data-i18n="net.port_add">+ Tambah port</button>
             <p class="settings-desc" data-i18n="net.common_ports_desc">Dipakai oleh jadwal scan port otomatis — bukan oleh Scan Port manual.</p>
           </div>
+        </section>
+
+        <section class="settings-section">
+          <h3 data-i18n="net.section">Pemindaian Jaringan</h3>
+          <p class="settings-desc" data-i18n="net.desc">Pengaturan Scan Port manual (rentang) dan discovery host melalui Scan Subnet.</p>
+
+          <div class="settings-subhead" data-i18n="net.scan_port">Scan port manual</div>
           <label><span data-i18n="net.port_method">Metode scan port</span>
             <select id="setScanPortMethod">
               <option value="parallel" data-i18n="mon.method_parallel">Paralel</option>
@@ -1080,11 +1084,6 @@ $pamantauAuth = pamantau_auth_public_payload();
         <section class="settings-section">
           <h3 data-i18n="grid.section">Grid &amp; Tata Letak</h3>
           <p class="settings-desc" data-i18n="grid.desc">Ukuran grid dan snap saat drag.</p>
-          <div class="settings-grid">
-            <label><span data-i18n="grid.size">Ukuran grid (px)</span>
-              <input type="number" id="setGridSize" min="8" max="64" step="2" />
-            </label>
-          </div>
           <label class="switch-row">
             <span class="switch-text" data-i18n="grid.show">Tampilkan grid di kanvas</span>
             <span class="switch">
@@ -1092,6 +1091,11 @@ $pamantauAuth = pamantau_auth_public_payload();
               <span class="slider" aria-hidden="true"></span>
             </span>
           </label>
+          <div class="settings-grid" id="gridSizeExtras" data-depends-on="grid-visible">
+            <label><span data-i18n="grid.size">Ukuran grid (px)</span>
+              <input type="number" id="setGridSize" min="8" max="64" step="2" />
+            </label>
+          </div>
           <label class="switch-row">
             <span class="switch-text" data-i18n="grid.snap">Snap ke grid saat drag</span>
             <span class="switch">

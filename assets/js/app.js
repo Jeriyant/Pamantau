@@ -478,6 +478,7 @@
     setPingTimeout: document.getElementById('setPingTimeout'),
     setPollMethod: document.getElementById('setPollMethod'),
     setPingCount: document.getElementById('setPingCount'),
+    pollingScheduleExtras: document.getElementById('pollingScheduleExtras'),
     setPortScan: document.getElementById('setPortScan'),
     portScanScheduleExtras: document.getElementById('portScanScheduleExtras'),
     setPortScanIntervalMin: document.getElementById('setPortScanIntervalMin'),
@@ -507,6 +508,7 @@
     setShowLatency: document.getElementById('setShowLatency'),
     setShowComment: document.getElementById('setShowComment'),
     setShowServices: document.getElementById('setShowServices'),
+    gridSizeExtras: document.getElementById('gridSizeExtras'),
     setGridSize: document.getElementById('setGridSize'),
     setShowGrid: document.getElementById('setShowGrid'),
     setSnapDrag: document.getElementById('setSnapDrag'),
@@ -850,7 +852,7 @@
     const compact = isCompactType(d && d.type);
     const meta = typeMeta(d && d.type);
     const tile = compact ? 56 : 72;
-    const iconSize = compact ? 28 : 36;
+    const iconSize = compact ? 38 : 48;
     const badgeLay = typeShortBadgeLayout(meta.short, compact);
     const capsuleGap = compact ? 5 : 6;
     const labelGap = compact ? 8 : 10;
@@ -2569,42 +2571,108 @@
 
   const iconOutlineCache = Object.create(null);
 
-  function drawDeviceIcon(d, iconX, iconY, iconSize, tone, { whiteOutline = false, outlineWidth = 1.75 } = {}) {
+  function drawDeviceIcon(
+    d,
+    iconX,
+    iconY,
+    iconSize,
+    tone,
+    {
+      outlineColor = null,
+      outlineWidth = 1.75,
+      innerOutlineColor = null,
+      innerOutlineWidth = 0,
+      outlineLayers = null,
+    } = {}
+  ) {
     const img = iconCache[d.type];
+    const customLayers = Array.isArray(outlineLayers)
+      ? outlineLayers.filter((layer) => layer && layer.color && layer.width > 0)
+      : [];
+    const layers = [];
+    if (customLayers.length) {
+      let radius = 0;
+      for (const layer of customLayers) {
+        radius += layer.width;
+        layers.push({ color: layer.color, radius });
+      }
+      layers.reverse();
+    } else if (outlineColor) {
+      if (innerOutlineColor && innerOutlineWidth > 0) {
+        layers.push({
+          color: outlineColor,
+          radius: Math.max(1, outlineWidth) + innerOutlineWidth,
+        });
+        layers.push({
+          color: innerOutlineColor,
+          radius: innerOutlineWidth,
+        });
+      } else {
+        layers.push({ color: outlineColor, radius: Math.max(1, outlineWidth) });
+      }
+    }
+
     if (img) {
-      if (whiteOutline) {
-        // White silhouette offsets → crisp outline, then draw the colored icon on top.
-        const ow = Math.max(1, outlineWidth);
-        const pad = Math.ceil(ow) + 1;
-        const side = Math.ceil(iconSize) + pad * 2;
-        const cacheKey = `${d.type}|${side}|${pad}`;
-        let off = iconOutlineCache[cacheKey];
-        if (!off) {
-          off = document.createElement('canvas');
-          off.width = side;
-          off.height = side;
-          const octx = off.getContext('2d');
-          octx.drawImage(img, pad, pad, iconSize, iconSize);
-          octx.globalCompositeOperation = 'source-in';
-          octx.fillStyle = '#ffffff';
-          octx.fillRect(0, 0, side, side);
-          iconOutlineCache[cacheKey] = off;
-        }
-        const steps = [
-          [-ow, 0], [ow, 0], [0, -ow], [0, ow],
-          [-ow, -ow], [-ow, ow], [ow, -ow], [ow, ow],
-        ];
-        for (const [dx, dy] of steps) {
-          ctx.drawImage(off, iconX - pad + dx, iconY - pad + dy);
+      if (layers.length) {
+        // Build the silhouette at a higher resolution and spread it around a
+        // circle. Downsampling the result keeps curved icon edges smooth,
+        // similar to a vector stroke, without changing the component box.
+        const scale = 4;
+        for (const layer of layers) {
+          const pad = Math.ceil(layer.radius) + 1;
+          const sourceSize = Math.ceil(iconSize * scale);
+          const scaledPad = pad * scale;
+          const side = sourceSize + scaledPad * 2;
+          const cacheKey = `${d.type}|${iconSize}|${layer.radius}|${layer.color}|smooth-hollow`;
+          let off = iconOutlineCache[cacheKey];
+          if (!off) {
+            const mask = document.createElement('canvas');
+            mask.width = side;
+            mask.height = side;
+            const mctx = mask.getContext('2d');
+            mctx.imageSmoothingEnabled = true;
+            mctx.imageSmoothingQuality = 'high';
+            mctx.drawImage(img, scaledPad, scaledPad, sourceSize, sourceSize);
+            mctx.globalCompositeOperation = 'source-in';
+            mctx.fillStyle = layer.color;
+            mctx.fillRect(0, 0, side, side);
+
+            off = document.createElement('canvas');
+            off.width = side;
+            off.height = side;
+            const octx = off.getContext('2d');
+            octx.imageSmoothingEnabled = true;
+            octx.imageSmoothingQuality = 'high';
+            const radius = layer.radius * scale;
+            const samples = 32;
+            for (let i = 0; i < samples; i += 1) {
+              const angle = (Math.PI * 2 * i) / samples;
+              octx.drawImage(mask, Math.cos(angle) * radius, Math.sin(angle) * radius);
+            }
+            octx.drawImage(mask, 0, 0);
+            // Keep the stroke outside the icon silhouette. Transparent areas
+            // inside the icon remain transparent instead of being color-filled.
+            octx.globalCompositeOperation = 'destination-out';
+            octx.drawImage(mask, 0, 0);
+            octx.globalCompositeOperation = 'source-over';
+            iconOutlineCache[cacheKey] = off;
+          }
+          ctx.save();
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.drawImage(off, iconX - pad, iconY - pad, iconSize + pad * 2, iconSize + pad * 2);
+          ctx.restore();
         }
       }
       ctx.drawImage(img, iconX, iconY, iconSize, iconSize);
     } else {
-      if (whiteOutline) {
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = Math.max(2, outlineWidth * 1.5);
-        roundRect(iconX + 3, iconY + 3, iconSize - 6, iconSize - 6, 5);
-        ctx.stroke();
+      if (layers.length) {
+        for (const layer of layers) {
+          ctx.strokeStyle = layer.color;
+          ctx.lineWidth = layer.radius * 2;
+          roundRect(iconX + 3, iconY + 3, iconSize - 6, iconSize - 6, 5);
+          ctx.stroke();
+        }
       }
       ctx.fillStyle = tone;
       roundRect(iconX + 3, iconY + 3, iconSize - 6, iconSize - 6, 5);
@@ -3026,7 +3094,12 @@
     const iconAreaBottom = capsuleY - badgeLay.h / 2 - (compact ? 4 : 5);
     const iconY = tileY + Math.max(compact ? 6 : 8, (iconAreaBottom - tileY - m.iconSize) / 2);
     const iconX = tileX + (tile - m.iconSize) / 2;
-    drawDeviceIcon(d, iconX, iconY, m.iconSize, tone, { whiteOutline: true, outlineWidth: 1.8 });
+    drawDeviceIcon(d, iconX, iconY, m.iconSize, tone, {
+      outlineLayers: [
+        { color: '#ffffff', width: 2 },
+        { color: '#000000', width: 2 },
+      ],
+    });
 
     // Capsule = same as menu Komponen `.ico-code`
     drawTypeShortBadge(
@@ -7089,6 +7162,7 @@
     const s = state.settings;
     el.setPollSec.value = Math.round(Number(s.poll_interval_ms || 5000) / 1000);
     if (el.setPollingEnabled) el.setPollingEnabled.checked = s.polling_enabled !== false;
+    syncPollingExtrasUi();
     el.setPingTimeout.value = Number(s.ping_timeout_ms || 1000);
     if (el.setPollMethod) {
       el.setPollMethod.value = s.poll_method === 'sequential' ? 'sequential' : 'parallel';
@@ -7157,6 +7231,7 @@
     syncLinkAnimControlsUi();
     if (el.setGridSize) el.setGridSize.value = Number(s.grid_size || 24);
     if (el.setShowGrid) el.setShowGrid.checked = !!s.show_grid;
+    syncGridSettingsUi();
     if (el.setSnapDrag) el.setSnapDrag.checked = !!s.snap_drag;
     if (el.setTheme) el.setTheme.value = resolveTheme(s.theme);
     if (el.setUiLanguage) el.setUiLanguage.value = normalizeUiLang(s.ui_language);
@@ -7167,13 +7242,22 @@
     syncColorField(el.setStatusUnknownColor, el.setStatusUnknownColorText, s.status_unknown_color, DEFAULT_SETTINGS.status_unknown_color);
   }
 
+  function syncPollingExtrasUi() {
+    if (!el.pollingScheduleExtras || !el.setPollingEnabled) return;
+    el.pollingScheduleExtras.classList.toggle('hidden', !el.setPollingEnabled.checked);
+  }
+
   function syncPortScanExtrasUi() {
     if (!el.setPortScan) return;
     const enabled = el.setPortScan.checked;
-    if (el.portScanExtras) el.portScanExtras.classList.toggle('hidden', !enabled);
     if (el.portScanScheduleExtras) {
       el.portScanScheduleExtras.classList.toggle('hidden', !enabled);
     }
+  }
+
+  function syncGridSettingsUi() {
+    if (!el.gridSizeExtras || !el.setShowGrid) return;
+    el.gridSizeExtras.classList.toggle('hidden', !el.setShowGrid.checked);
   }
 
   function syncBackgroundSchedUi() {
@@ -8959,20 +9043,23 @@ ${periodHtml}
   }
 
   async function fullProjectPayload() {
-    // Project file: devices, connections, stats only (settings live in app DB).
-    try {
-      await api('replace_topology', {
-        devices: state.devices,
-        connections: state.connections,
-        stats: state.stats || {},
-      });
-    } catch (_) { /* tetap tulis dari state meski sync server gagal */ }
+    // Local files contain topology only. Poll counters, live status/latency,
+    // and aggregate history remain authoritative in the server database.
+    const devices = state.devices.map((device) => {
+      const {
+        status: _status,
+        latency: _latency,
+        poll_count: _pollCount,
+        ports_scanned_at: _portsScannedAt,
+        ...topologyDevice
+      } = device;
+      return topologyDevice;
+    });
     return {
       app: 'Pamantau',
       exported_at: new Date().toISOString(),
-      devices: state.devices,
+      devices,
       connections: state.connections,
-      stats: state.stats || {},
     };
   }
 
@@ -9303,16 +9390,14 @@ ${periodHtml}
   async function applyOpenedTopology(data, meta = {}) {
     const devices = data.devices || [];
     const connections = data.connections || [];
-    const stats = data.stats && typeof data.stats === 'object' ? data.stats : {};
-    // Ignore data.settings if present (legacy project files) — settings stay app-local.
+    // Ignore legacy data.stats/data.settings. Monitoring data stays server-local.
     const saved = await api('replace_topology', {
       devices,
       connections,
-      stats,
     });
     state.devices = saved.devices;
     state.connections = saved.connections;
-    state.stats = saved.stats || stats || {};
+    state.stats = saved.stats || state.stats || {};
     await rememberDoc({
       name: meta.name || state.doc.name || null,
       handle: meta.handle !== undefined ? meta.handle : state.doc.handle,
@@ -9363,7 +9448,6 @@ ${periodHtml}
     await api('replace_topology', {
       devices: state.devices,
       connections: state.connections,
-      stats: state.stats || {},
     });
   }
 
@@ -9376,7 +9460,7 @@ ${periodHtml}
     const suggested = suggestedSaveName();
 
     try {
-      // fullProjectPayload sudah sync ke server
+      // Saving a local project never replaces server-owned monitoring data.
 
       if (!saveAs && state.doc.handle) {
         const ok = await ensureFileHandlePermission(state.doc.handle, 'readwrite');
@@ -9701,7 +9785,7 @@ ${periodHtml}
     if (act === 'new') {
       if (!confirm('Buat topologi baru? Semua perangkat di kanvas akan dihapus.')) return;
       try {
-        const data = await api('replace_topology', { devices: [], connections: [], stats: {} });
+        const data = await api('replace_topology', { devices: [], connections: [] });
         state.devices = data.devices;
         state.connections = data.connections;
         state.stats = data.stats || {};
@@ -10107,6 +10191,12 @@ ${periodHtml}
   }
   if (el.setPortScan) {
     el.setPortScan.addEventListener('change', () => syncPortScanExtrasUi());
+  }
+  if (el.setPollingEnabled) {
+    el.setPollingEnabled.addEventListener('change', () => syncPollingExtrasUi());
+  }
+  if (el.setShowGrid) {
+    el.setShowGrid.addEventListener('change', () => syncGridSettingsUi());
   }
   if (el.setBackgroundEnabled) {
     el.setBackgroundEnabled.addEventListener('change', () => syncBackgroundSchedUi());

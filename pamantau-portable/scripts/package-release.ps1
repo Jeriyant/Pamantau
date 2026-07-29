@@ -12,7 +12,8 @@ if ([string]::IsNullOrWhiteSpace($SourceRoot)) {
 $source = (Resolve-Path -LiteralPath $SourceRoot).Path
 $portableRoot = Join-Path $source 'pamantau-portable'
 $versionFile = Join-Path $source 'version.json'
-$serverExe = Join-Path $portableRoot 'PamantauServer.exe'
+$installedServerExe = Join-Path $portableRoot 'PamantauServer.exe'
+$publishedServerExe = Join-Path $portableRoot 'data\temp\server-publish\PamantauServer.exe'
 $distRoot = Join-Path $source 'dist-pack'
 $appStage = Join-Path $distRoot 'app-release'
 $portableStage = Join-Path $distRoot 'portable-release'
@@ -20,14 +21,23 @@ $portableStage = Join-Path $distRoot 'portable-release'
 if (-not (Test-Path -LiteralPath $versionFile -PathType Leaf)) {
     throw "Version file not found: $versionFile"
 }
-if (-not (Test-Path -LiteralPath $serverExe -PathType Leaf)) {
-    throw "Build PamantauServer.exe before packaging the release."
-}
-
 $versionData = Get-Content -LiteralPath $versionFile -Raw | ConvertFrom-Json
 $version = [string] $versionData.version
 if ($version -notmatch '^\d+\.\d+\.\d+$') {
     throw "Invalid release version: $version"
+}
+$expectedFileVersion = "$version.0"
+$serverExe = @($publishedServerExe, $installedServerExe) |
+    Where-Object {
+        if (-not (Test-Path -LiteralPath $_ -PathType Leaf)) {
+            return $false
+        }
+        $info = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($_)
+        return [string] $info.FileVersion -eq $expectedFileVersion
+    } |
+    Select-Object -First 1
+if ([string]::IsNullOrWhiteSpace($serverExe)) {
+    throw "Build PamantauServer.exe version $expectedFileVersion before packaging the release."
 }
 
 New-Item -ItemType Directory -Force -Path $distRoot | Out-Null
@@ -77,13 +87,13 @@ function Copy-PamantauApplication {
 Copy-PamantauApplication -Destination $appStage
 
 foreach ($name in @(
-    'PamantauServer.exe',
     'PORTABLE-MANIFEST.json',
     'README.md',
     'REQUIREMENTS.md'
 )) {
     Copy-Item -LiteralPath (Join-Path $portableRoot $name) -Destination $portableStage -Force
 }
+Copy-Item -LiteralPath $serverExe -Destination (Join-Path $portableStage 'PamantauServer.exe') -Force
 
 foreach ($name in @(
     'licenses',
