@@ -56,7 +56,7 @@ namespace PamantauLauncher
         {
             // Form Config
             this.Text = "Pamantau — Server Control Panel";
-            this.Size = new Size(660, 710);
+            this.Size = new Size(680, 720);
             this.StartPosition = FormStartPosition.CenterScreen;
             this.FormBorderStyle = FormBorderStyle.FixedSingle;
             this.MaximizeBox = false;
@@ -65,10 +65,11 @@ namespace PamantauLauncher
             this.Font = new Font("Segoe UI", 9.5F, FontStyle.Regular);
 
             // Icon Setup
-            string iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "app.ico");
+            string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+            string iconPath = Path.Combine(baseDir, "app.ico");
             if (!File.Exists(iconPath))
             {
-                iconPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "launcher", "app.ico");
+                iconPath = Path.Combine(baseDir, "..", "launcher", "app.ico");
             }
 
             Icon? appIcon = null;
@@ -76,8 +77,25 @@ namespace PamantauLauncher
             {
                 try
                 {
-                    appIcon = new Icon(iconPath);
+                    appIcon = new Icon(iconPath, 256, 256);
                     this.Icon = appIcon;
+                }
+                catch (Exception) { }
+            }
+
+            // High-res Logo Image Setup
+            string logoPngPath = Path.Combine(baseDir, "logo.png");
+            if (!File.Exists(logoPngPath))
+            {
+                logoPngPath = Path.Combine(baseDir, "..", "launcher", "logo.png");
+            }
+
+            Image? logoImg = null;
+            if (File.Exists(logoPngPath))
+            {
+                try
+                {
+                    logoImg = Image.FromFile(logoPngPath);
                 }
                 catch (Exception) { }
             }
@@ -109,17 +127,21 @@ namespace PamantauLauncher
             _headerPanel = new Panel
             {
                 Location = new Point(0, 0),
-                Size = new Size(660, 95),
+                Size = new Size(680, 105),
                 BackColor = Color.FromArgb(30, 41, 59)
             };
 
             _pbLogo = new PictureBox
             {
-                Location = new Point(20, 18),
-                Size = new Size(58, 58),
+                Location = new Point(20, 20),
+                Size = new Size(64, 64),
                 SizeMode = PictureBoxSizeMode.Zoom
             };
-            if (appIcon != null)
+            if (logoImg != null)
+            {
+                _pbLogo.Image = logoImg;
+            }
+            else if (appIcon != null)
             {
                 _pbLogo.Image = appIcon.ToBitmap();
             }
@@ -127,8 +149,9 @@ namespace PamantauLauncher
             _lblTitle = new Label
             {
                 Text = "PAMANTAU",
-                Location = new Point(90, 16),
-                AutoSize = true,
+                Location = new Point(96, 18),
+                Size = new Size(360, 36),
+                AutoSize = false,
                 Font = new Font("Segoe UI", 18F, FontStyle.Bold),
                 ForeColor = Color.FromArgb(129, 140, 248)
             };
@@ -136,17 +159,19 @@ namespace PamantauLauncher
             _lblSubtitle = new Label
             {
                 Text = "Sistem Monitoring Jaringan & Host — Standalone Web Server",
-                Location = new Point(92, 54),
-                AutoSize = true,
-                Font = new Font("Segoe UI", 9F, FontStyle.Regular),
+                Location = new Point(98, 58),
+                Size = new Size(370, 24),
+                AutoSize = false,
+                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
                 ForeColor = Color.FromArgb(148, 163, 184)
             };
 
             _lblStatusBadge = new Label
             {
                 Text = "● SERVER MATI",
-                Location = new Point(480, 28),
-                Size = new Size(145, 38),
+                Location = new Point(490, 32),
+                Size = new Size(160, 40),
+                AutoSize = false,
                 TextAlign = ContentAlignment.MiddleCenter,
                 Font = new Font("Segoe UI", 9.5F, FontStyle.Bold),
                 BackColor = Color.FromArgb(239, 68, 68), // Red
@@ -162,22 +187,22 @@ namespace PamantauLauncher
             _grpServer = new GroupBox
             {
                 Text = " Kontrol Server Web ",
-                Location = new Point(20, 110),
-                Size = new Size(604, 115),
+                Location = new Point(20, 120),
+                Size = new Size(624, 120),
                 ForeColor = Color.FromArgb(226, 232, 240)
             };
 
             _lblPort = new Label
             {
                 Text = "Port Web:",
-                Location = new Point(20, 38),
+                Location = new Point(20, 42),
                 Size = new Size(80, 24),
                 TextAlign = ContentAlignment.MiddleLeft
             };
 
             _numPort = new NumericUpDown
             {
-                Location = new Point(105, 34),
+                Location = new Point(105, 38),
                 Size = new Size(95, 30),
                 Minimum = 80,
                 Maximum = 65535,
@@ -191,8 +216,8 @@ namespace PamantauLauncher
             _btnToggleServer = new Button
             {
                 Text = "▶  START SERVER",
-                Location = new Point(215, 30),
-                Size = new Size(180, 42),
+                Location = new Point(220, 34),
+                Size = new Size(185, 44),
                 Font = new Font("Segoe UI", 10F, FontStyle.Bold),
                 BackColor = Color.FromArgb(34, 197, 94), // Green
                 ForeColor = Color.White,
@@ -204,8 +229,8 @@ namespace PamantauLauncher
             _btnOpenBrowser = new Button
             {
                 Text = "🌐  BUKA BROWSER",
-                Location = new Point(405, 30),
-                Size = new Size(180, 42),
+                Location = new Point(420, 34),
+                Size = new Size(185, 44),
                 Font = new Font("Segoe UI", 10F, FontStyle.Bold),
                 BackColor = Color.FromArgb(99, 102, 241), // Indigo
                 ForeColor = Color.White,
@@ -223,23 +248,23 @@ namespace PamantauLauncher
             _grpLinks = new GroupBox
             {
                 Text = " Alamat Akses Web (URL) ",
-                Location = new Point(20, 240),
-                Size = new Size(604, 135),
+                Location = new Point(20, 255),
+                Size = new Size(624, 140),
                 ForeColor = Color.FromArgb(226, 232, 240)
             };
 
             _lblLocalhostTitle = new Label
             {
                 Text = "Localhost (PC Ini):",
-                Location = new Point(20, 35),
-                Size = new Size(150, 24),
+                Location = new Point(20, 38),
+                Size = new Size(160, 24),
                 TextAlign = ContentAlignment.MiddleLeft
             };
 
             _txtLocalhostUrl = new TextBox
             {
-                Location = new Point(175, 32),
-                Size = new Size(295, 28),
+                Location = new Point(185, 35),
+                Size = new Size(305, 28),
                 ReadOnly = true,
                 BackColor = Color.FromArgb(30, 41, 59),
                 ForeColor = Color.FromArgb(56, 189, 248),
@@ -249,8 +274,8 @@ namespace PamantauLauncher
             _btnCopyLocalhost = new Button
             {
                 Text = "Salin",
-                Location = new Point(480, 30),
-                Size = new Size(105, 30),
+                Location = new Point(500, 33),
+                Size = new Size(105, 32),
                 BackColor = Color.FromArgb(51, 65, 85),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
@@ -264,15 +289,15 @@ namespace PamantauLauncher
             _lblNetworkIpTitle = new Label
             {
                 Text = "IP Jaringan (LAN/Wi-Fi):",
-                Location = new Point(20, 80),
-                Size = new Size(150, 24),
+                Location = new Point(20, 85),
+                Size = new Size(160, 24),
                 TextAlign = ContentAlignment.MiddleLeft
             };
 
             _txtNetworkIpUrl = new TextBox
             {
-                Location = new Point(175, 77),
-                Size = new Size(295, 28),
+                Location = new Point(185, 82),
+                Size = new Size(305, 28),
                 ReadOnly = true,
                 BackColor = Color.FromArgb(30, 41, 59),
                 ForeColor = Color.FromArgb(74, 222, 128),
@@ -282,8 +307,8 @@ namespace PamantauLauncher
             _btnCopyNetworkIp = new Button
             {
                 Text = "Salin",
-                Location = new Point(480, 75),
-                Size = new Size(105, 30),
+                Location = new Point(500, 80),
+                Size = new Size(105, 32),
                 BackColor = Color.FromArgb(51, 65, 85),
                 ForeColor = Color.White,
                 FlatStyle = FlatStyle.Flat
@@ -305,15 +330,15 @@ namespace PamantauLauncher
             _grpLog = new GroupBox
             {
                 Text = " Log Aktivitas Server ",
-                Location = new Point(20, 390),
-                Size = new Size(604, 255),
+                Location = new Point(20, 410),
+                Size = new Size(624, 250),
                 ForeColor = Color.FromArgb(226, 232, 240)
             };
 
             _rtbLog = new RichTextBox
             {
                 Location = new Point(15, 25),
-                Size = new Size(574, 215),
+                Size = new Size(594, 210),
                 ReadOnly = true,
                 BackColor = Color.FromArgb(15, 23, 42),
                 ForeColor = Color.FromArgb(148, 163, 184),
