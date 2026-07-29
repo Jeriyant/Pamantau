@@ -29,7 +29,7 @@ $pamantauAuth = pamantau_auth_public_payload();
   <link rel="stylesheet" href="assets/css/update.css?v=<?= (int) @filemtime(__DIR__ . '/assets/css/update.css') ?>" />
 <?php
   $pamantauVersionFile = __DIR__ . '/version.json';
-  $pamantauVersion = '1.2.5';
+  $pamantauVersion = '1.3.0';
   if (is_file($pamantauVersionFile)) {
     $vj = json_decode((string) @file_get_contents($pamantauVersionFile), true);
     if (is_array($vj) && !empty($vj['version'])) {
@@ -943,7 +943,8 @@ $pamantauAuth = pamantau_auth_public_payload();
 
         <section class="settings-section">
           <h3 data-i18n="mon.section">Monitoring</h3>
-          <p class="settings-desc" data-i18n="mon.desc">Interval polling, metode ping, timeout, dan opsi scan port otomatis saat polling.</p>
+          <p class="settings-desc" data-i18n="mon.desc">Polling status dan pemindaian port berjalan sebagai dua pekerjaan terpisah.</p>
+          <div class="settings-subhead" data-i18n="mon.ping_job">Polling status (ping)</div>
           <div class="settings-grid">
             <label><span data-i18n="mon.poll_interval">Interval polling (detik)</span>
               <input type="number" id="setPollSec" min="2" max="60" step="1" />
@@ -957,8 +958,8 @@ $pamantauAuth = pamantau_auth_public_payload();
                 <option value="sequential" data-i18n="mon.method_sequential">Satu-Satu</option>
               </select>
             </label>
-            <label><span data-i18n="mon.ping_count">Jumlah ping per siklus</span>
-              <input type="number" id="setPingCount" min="1" max="10" step="1" />
+            <label><span data-i18n="mon.ping_count">Jumlah ping per siklus (3–5)</span>
+              <input type="number" id="setPingCount" min="3" max="5" step="1" />
             </label>
           </div>
           <label class="switch-row">
@@ -968,8 +969,21 @@ $pamantauAuth = pamantau_auth_public_payload();
               <span class="slider" aria-hidden="true"></span>
             </span>
           </label>
+
+          <div class="settings-subhead" data-i18n="mon.port_job">Pemindaian port otomatis</div>
+          <div class="settings-grid" id="portScanScheduleExtras" data-depends-on="port-scan">
+            <label><span data-i18n="mon.port_interval">Interval scan port (menit)</span>
+              <input type="number" id="setPortScanIntervalMin" min="1" max="1440" step="1" />
+            </label>
+            <label><span data-i18n="mon.port_timeout">Timeout port (ms)</span>
+              <input type="number" id="setPortScanTimeout" min="100" max="5000" step="50" />
+            </label>
+            <label><span data-i18n="mon.port_concurrency">Perangkat paralel (16–32)</span>
+              <input type="number" id="setPortScanConcurrency" min="16" max="32" step="1" />
+            </label>
+          </div>
           <label class="switch-row">
-            <span class="switch-text" data-i18n="mon.auto_port">Scan port otomatis saat polling</span>
+            <span class="switch-text" data-i18n="mon.auto_port">Scan port otomatis (jadwal terpisah)</span>
             <span class="switch">
               <input type="checkbox" id="setPortScan" role="switch" />
               <span class="slider" aria-hidden="true"></span>
@@ -1007,7 +1021,7 @@ $pamantauAuth = pamantau_auth_public_payload();
 
         <section class="settings-section">
           <h3 data-i18n="net.section">Pemindaian Jaringan</h3>
-          <p class="settings-desc" data-i18n="net.desc">Port umum untuk polling, Scan Port manual (rentang), dan discovery host lewat Scan Subnet. Tampilkan port di perangkat ada di Tampilan Komponen.</p>
+          <p class="settings-desc" data-i18n="net.desc">Port umum untuk scan otomatis, Scan Port manual (rentang), dan discovery host lewat Scan Subnet. Tampilkan port di perangkat ada di Tampilan Komponen.</p>
 
           <div class="settings-subhead" data-i18n="net.scan_port">Scan port</div>
           <div class="port-table-wrap" id="portScanExtras" data-depends-on="port-scan">
@@ -1024,7 +1038,7 @@ $pamantauAuth = pamantau_auth_public_payload();
               <tbody id="commonPortsBody"></tbody>
             </table>
             <button type="button" class="btn ghost" id="btnAddCommonPort" data-i18n="net.port_add">+ Tambah port</button>
-            <p class="settings-desc" data-i18n="net.common_ports_desc">Dipakai hanya oleh polling otomatis — bukan oleh Scan Port manual. Tampil saat “Scan port otomatis saat polling” aktif di Monitoring.</p>
+            <p class="settings-desc" data-i18n="net.common_ports_desc">Dipakai oleh jadwal scan port otomatis — bukan oleh Scan Port manual.</p>
           </div>
           <label><span data-i18n="net.port_method">Metode scan port</span>
             <select id="setScanPortMethod">
@@ -1032,7 +1046,7 @@ $pamantauAuth = pamantau_auth_public_payload();
               <option value="sequential" data-i18n="mon.method_sequential">Satu-Satu</option>
             </select>
           </label>
-          <p class="settings-desc" data-i18n="net.port_method_desc">Untuk Scan Port manual (rentang). Polling port umum tetap sequential singkat.</p>
+          <p class="settings-desc" data-i18n="net.port_method_desc">Untuk Scan Port manual (rentang). Scan otomatis selalu memakai parallel terbatas.</p>
           <div class="settings-grid">
             <label><span data-i18n="net.port_max">Maks. port per scan</span>
               <input type="number" id="setScanPortMax" min="1" max="10000" step="1" />

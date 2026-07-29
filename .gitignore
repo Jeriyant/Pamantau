@@ -24,7 +24,23 @@ JNET.json
 # Build / release artifacts
 dist-pack/
 pamantau-dist.zip
-pamantau-portable/
-pamantau-portable.zip
+Pamantau-Portable-*.zip
 launcher/bin/
 launcher/obj/
+pamantau-portable/server-src/bin/
+pamantau-portable/server-src/obj/
+
+# Portable runtime artifacts
+pamantau-portable/PamantauServer.exe
+pamantau-portable/app/
+pamantau-portable/data/server-config.json
+pamantau-portable/data/logs/*
+pamantau-portable/data/sessions/*
+pamantau-portable/data/temp/*
+pamantau-portable/data/update-work/*
+pamantau-portable/data/update-backups/
+pamantau-portable/php/*
+!pamantau-portable/php/README.md
+!pamantau-portable/php/php.ini
+!pamantau-portable/php/snapshot.txt
+pamantau-portable/prerequisites/*

@@ -58,7 +58,7 @@ function pamantau_parse_ping_output(string $text, int $code, float $elapsedMs = 
 {
     $latency = null;
     $subMs = false;
-    if (preg_match('/(?:time|waktu)([=<])\s*([\d.]+)\s*ms/i', $text, $m)) {
+    if (preg_match('/time([=<])\s*([\d.]+)\s*ms/i', $text, $m)) {
         $latency = (float) $m[2];
         $subMs = ($m[1] === '<') || $latency < 1;
         $latency = (int) round($latency);
@@ -73,8 +73,7 @@ function pamantau_parse_ping_output(string $text, int $code, float $elapsedMs = 
         $ttl = (int) $tm[1];
     }
 
-    $hasReply = (stripos($text, 'ttl=') !== false) || (stripos($text, 'bytes=') !== false) || (stripos($text, 'byte=') !== false) || (stripos($text, 'reply from') !== false) || (stripos($text, 'balasan dari') !== false);
-    $alive = ($code === 0 && ($hasReply || $latency !== null)) || ($latency !== null && $hasReply);
+    $alive = ($code === 0) || ($latency !== null && stripos($text, 'ttl=') !== false);
 
     $out = [
         'alive' => $alive,
@@ -119,7 +118,7 @@ function pamantau_ping(string $ip, int $timeoutMs = 1000): array
 }
 
 /**
- * Ping many hosts concurrently (in batches of 16) via proc_open.
+ * Ping many hosts concurrently (one echo each) via proc_open.
  * Returns map of host => ping result array.
  *
  * @param list<string> $hosts
@@ -140,87 +139,84 @@ function pamantau_ping_parallel(array $hosts, int $timeoutMs = 1000): array
     }
 
     $results = [];
-    $chunks = array_chunk($unique, 16);
+    $handles = [];
 
-    foreach ($chunks as $chunk) {
-        $handles = [];
-
-        foreach ($chunk as $ip) {
-            $cmd = pamantau_ping_command($ip, $timeoutMs);
-            if ($cmd === null) {
-                $results[$ip] = ['alive' => false, 'latency' => null, 'elapsed_ms' => 0.0, 'error' => 'invalid_ip'];
-                continue;
-            }
-
-            $descriptors = [
-                0 => ['pipe', 'r'],
-                1 => ['pipe', 'w'],
-                2 => ['pipe', 'w'],
-            ];
-            $pipes = [];
-            $proc = @proc_open($cmd, $descriptors, $pipes, null, null, ['bypass_shell' => true]);
-            if (!is_resource($proc)) {
-                $results[$ip] = pamantau_ping($ip, $timeoutMs);
-                continue;
-            }
-            fclose($pipes[0]);
-            stream_set_blocking($pipes[1], false);
-            stream_set_blocking($pipes[2], false);
-            $handles[$ip] = [
-                'proc' => $proc,
-                'out' => $pipes[1],
-                'err' => $pipes[2],
-                'buf' => '',
-                'start' => microtime(true),
-            ];
+    foreach ($unique as $ip) {
+        $cmd = pamantau_ping_command($ip, $timeoutMs);
+        if ($cmd === null) {
+            $results[$ip] = ['alive' => false, 'latency' => null, 'elapsed_ms' => 0.0, 'error' => 'invalid_ip'];
+            continue;
         }
 
-        $deadline = microtime(true) + max(2.5, ($timeoutMs / 1000) + 1.5);
+        $descriptors = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
+        $pipes = [];
+        $proc = @proc_open($cmd, $descriptors, $pipes, null, null, ['bypass_shell' => true]);
+        if (!is_resource($proc)) {
+            // Fallback: sequential ping for this host only
+            $results[$ip] = pamantau_ping($ip, $timeoutMs);
+            continue;
+        }
+        fclose($pipes[0]);
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+        $handles[$ip] = [
+            'proc' => $proc,
+            'out' => $pipes[1],
+            'err' => $pipes[2],
+            'buf' => '',
+            'start' => microtime(true),
+        ];
+    }
 
-        while ($handles !== []) {
-            foreach ($handles as $ip => $h) {
-                $chunkOut = stream_get_contents($h['out']);
-                $chunkErr = stream_get_contents($h['err']);
-                if ($chunkOut !== false && $chunkOut !== '') {
-                    $h['buf'] .= $chunkOut;
-                }
-                if ($chunkErr !== false && $chunkErr !== '') {
-                    $h['buf'] .= $chunkErr;
-                }
+    $deadline = microtime(true) + max(2.0, ($timeoutMs / 1000) + 2.0);
 
+    while ($handles !== []) {
+        foreach ($handles as $ip => $h) {
+            $chunkOut = stream_get_contents($h['out']);
+            $chunkErr = stream_get_contents($h['err']);
+            if ($chunkOut !== false && $chunkOut !== '') {
+                $h['buf'] .= $chunkOut;
+            }
+            if ($chunkErr !== false && $chunkErr !== '') {
+                $h['buf'] .= $chunkErr;
+            }
+
+            $status = proc_get_status($h['proc']);
+            $timedOut = microtime(true) >= $deadline;
+            if ($status['running'] && !$timedOut) {
+                $handles[$ip] = $h;
+                continue;
+            }
+
+            if ($status['running']) {
+                proc_terminate($h['proc']);
                 $status = proc_get_status($h['proc']);
-                $timedOut = microtime(true) >= $deadline;
-                if ($status['running'] && !$timedOut) {
-                    $handles[$ip] = $h;
-                    continue;
-                }
-
-                if ($status['running']) {
-                    @proc_terminate($h['proc']);
-                    $status = proc_get_status($h['proc']);
-                }
-
-                $restOut = stream_get_contents($h['out']);
-                $restErr = stream_get_contents($h['err']);
-                if ($restOut !== false) {
-                    $h['buf'] .= $restOut;
-                }
-                if ($restErr !== false) {
-                    $h['buf'] .= $restErr;
-                }
-                fclose($h['out']);
-                fclose($h['err']);
-                $code = proc_close($h['proc']);
-                if (!is_int($code) || $code < 0) {
-                    $code = (int) ($status['exitcode'] ?? 1);
-                }
-                $elapsedMs = (microtime(true) - $h['start']) * 1000;
-                $results[$ip] = pamantau_parse_ping_output($h['buf'], $code, $elapsedMs);
-                unset($handles[$ip]);
             }
-            if ($handles !== []) {
-                usleep(3000);
+
+            $restOut = stream_get_contents($h['out']);
+            $restErr = stream_get_contents($h['err']);
+            if ($restOut !== false) {
+                $h['buf'] .= $restOut;
             }
+            if ($restErr !== false) {
+                $h['buf'] .= $restErr;
+            }
+            fclose($h['out']);
+            fclose($h['err']);
+            $code = proc_close($h['proc']);
+            if (!is_int($code) || $code < 0) {
+                $code = (int) ($status['exitcode'] ?? 1);
+            }
+            $elapsedMs = (microtime(true) - $h['start']) * 1000;
+            $results[$ip] = pamantau_parse_ping_output($h['buf'], $code, $elapsedMs);
+            unset($handles[$ip]);
+        }
+        if ($handles !== []) {
+            usleep(3000);
         }
     }
 
@@ -786,6 +782,153 @@ function pamantau_scan_ports_parallel(string $ip, array $ports, float $timeoutSe
 
     sort($open);
     return array_values(array_unique($open));
+}
+
+/**
+ * Scan the same common-port list across several devices concurrently.
+ *
+ * Devices are processed in bounded groups while the active socket set stays
+ * below a Windows-safe stream_select size. The result is keyed by device id.
+ *
+ * @param array<string, string> $targets Device id => host/IP
+ * @param list<int|string> $ports
+ * @return array<string, list<int>>
+ */
+function pamantau_scan_device_ports_parallel(
+    array $targets,
+    array $ports,
+    int $timeoutMs = 350,
+    int $deviceConcurrency = 24,
+    int $socketConcurrency = 60
+): array {
+    $cleanTargets = [];
+    foreach ($targets as $id => $host) {
+        $id = trim((string) $id);
+        $host = trim((string) $host);
+        if ($id !== '' && pamantau_is_valid_host($host)) {
+            $cleanTargets[$id] = $host;
+        }
+    }
+
+    $ports = pamantau_normalize_port_list($ports);
+    $results = array_fill_keys(array_keys($cleanTargets), []);
+    if ($cleanTargets === [] || $ports === []) {
+        return $results;
+    }
+
+    $timeoutSec = min(5.0, max(0.1, $timeoutMs / 1000));
+    $deviceConcurrency = min(32, max(1, $deviceConcurrency));
+    $socketConcurrency = min(60, max(8, $socketConcurrency));
+
+    // Native non-blocking sockets expose SO_ERROR, which reliably distinguishes
+    // a completed connection from a refused/failed one on both Windows and Linux.
+    if (!function_exists('socket_create') || !function_exists('socket_select')) {
+        foreach ($cleanTargets as $id => $host) {
+            $results[$id] = pamantau_scan_ports_parallel($host, $ports, $timeoutSec);
+        }
+        return $results;
+    }
+
+    foreach (array_chunk($cleanTargets, $deviceConcurrency, true) as $deviceBatch) {
+        $preparedDevices = [];
+        foreach ($deviceBatch as $id => $host) {
+            $family = AF_INET;
+            $socketHost = $host;
+            if (filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
+                $family = AF_INET6;
+            } elseif (!filter_var($host, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                $resolved = gethostbyname($host);
+                if (!filter_var($resolved, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)) {
+                    continue;
+                }
+                $socketHost = $resolved;
+            }
+            $preparedDevices[] = [
+                'id' => (string) $id,
+                'host' => $socketHost,
+                'family' => $family,
+            ];
+        }
+
+        // Interleave devices by port. With the Windows-safe 60 socket cap,
+        // this keeps the whole 16-32 device batch active instead of allowing
+        // the first few devices to consume every socket with all their ports.
+        $queue = [];
+        foreach ($ports as $port) {
+            foreach ($preparedDevices as $device) {
+                $queue[] = [
+                    'id' => $device['id'],
+                    'host' => $device['host'],
+                    'family' => $device['family'],
+                    'port' => (int) $port,
+                ];
+            }
+        }
+
+        $cursor = 0;
+        $active = [];
+        while ($cursor < count($queue) || $active !== []) {
+            while ($cursor < count($queue) && count($active) < $socketConcurrency) {
+                $job = $queue[$cursor++];
+                $socket = @socket_create($job['family'], SOCK_STREAM, SOL_TCP);
+                if ($socket === false) {
+                    continue;
+                }
+                @socket_set_nonblock($socket);
+                $connected = @socket_connect($socket, $job['host'], $job['port']);
+                if ($connected) {
+                    $results[$job['id']][] = (int) $job['port'];
+                    socket_close($socket);
+                    continue;
+                }
+                $active[] = [
+                    'socket' => $socket,
+                    'id' => $job['id'],
+                    'port' => $job['port'],
+                    'start' => microtime(true),
+                ];
+            }
+
+            if ($active === []) {
+                continue;
+            }
+
+            $read = [];
+            $write = array_column($active, 'socket');
+            $except = $write;
+            @socket_select($read, $write, $except, 0, 50000);
+            $now = microtime(true);
+
+            foreach ($active as $index => $handle) {
+                $ready = in_array($handle['socket'], $write, true)
+                    || in_array($handle['socket'], $except, true);
+                $timedOut = ($now - $handle['start']) >= $timeoutSec;
+                if (!$ready && !$timedOut) {
+                    continue;
+                }
+
+                if ($ready) {
+                    $socketError = @socket_get_option($handle['socket'], SOL_SOCKET, SO_ERROR);
+                    if ($socketError === 0) {
+                        $results[$handle['id']][] = (int) $handle['port'];
+                    }
+                }
+                socket_close($handle['socket']);
+                unset($active[$index]);
+            }
+            if ($active !== []) {
+                $active = array_values($active);
+            }
+        }
+    }
+
+    foreach ($results as &$openPorts) {
+        sort($openPorts);
+        $openPorts = array_values(array_unique($openPorts));
+    }
+    unset($openPorts);
+
+    return $results;
 }
 
 function pamantau_parse_subnet(string $ip, string $subnet): ?array

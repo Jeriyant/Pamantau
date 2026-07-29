@@ -215,6 +215,9 @@
     poll_method: 'parallel',
     ping_count: 5,
     port_scan_enabled: true,
+    port_scan_interval_ms: 300000,
+    port_scan_timeout_ms: 350,
+    port_scan_device_concurrency: 24,
     common_ports: [22, 23, 53, 80, 443, 1996, 2219, 2296, 3306, 3389, 8080, 8091, 8291, 8443, 8728],
     common_port_notes: { ...DEFAULT_PORT_NOTES },
     scan_port_method: 'parallel',
@@ -324,6 +327,8 @@
     pollToken: 0,
     pollBusy: false,
     pollBusyGen: 0,
+    portPollTimer: null,
+    portPollBusy: false,
     busyController: null,
     reportTab: 'status',
     reportSort: {},
@@ -474,6 +479,10 @@
     setPollMethod: document.getElementById('setPollMethod'),
     setPingCount: document.getElementById('setPingCount'),
     setPortScan: document.getElementById('setPortScan'),
+    portScanScheduleExtras: document.getElementById('portScanScheduleExtras'),
+    setPortScanIntervalMin: document.getElementById('setPortScanIntervalMin'),
+    setPortScanTimeout: document.getElementById('setPortScanTimeout'),
+    setPortScanConcurrency: document.getElementById('setPortScanConcurrency'),
     portScanExtras: document.getElementById('portScanExtras'),
     commonPortsBody: document.getElementById('commonPortsBody'),
     btnAddCommonPort: document.getElementById('btnAddCommonPort'),
@@ -5317,7 +5326,7 @@
   }
 
   function pingAttemptCount() {
-    return Math.min(10, Math.max(1, Number(state.settings?.ping_count || 5)));
+    return Math.min(5, Math.max(3, Number(state.settings?.ping_count || 5)));
   }
 
   const TERMINAL_CAPTURE_COLORS = {
@@ -6553,14 +6562,15 @@
     const token = state.pollToken;
     const auto = silent;
     try {
-      const data = await api('poll', { scan_ports: false });
+      const data = await api('poll');
       // Dimatikan saat request masih jalan — buang hasil auto-poll.
       if (auto && !isPollingEnabled()) {
         return;
       }
       if (token !== state.pollToken) {
         if (auto && !isPollingEnabled()) return;
-        // Invalidated (delete / Scan Port) — only patch status/latency
+        // Invalidated (delete / Scan Port) — only patch status/latency, never services
+        // (manual port scan results must not be overwritten by a discarded poll).
         if (Array.isArray(data.results)) {
           const map = Object.fromEntries(state.devices.map((d) => [d.id, d]));
           for (const r of data.results) {
@@ -6570,25 +6580,12 @@
             d.latency = r.latency != null && Number.isFinite(Number(r.latency))
               ? Math.round(Number(r.latency))
               : r.latency;
-            if (r.services) d.services = r.services;
-            if (r.poll_count != null) d.poll_count = r.poll_count;
           }
           draw();
         }
         return;
       }
-      if (Array.isArray(data.devices) && data.devices.length > 0) {
-        const pollMap = Object.fromEntries(data.devices.map((d) => [d.id, d]));
-        for (const d of state.devices) {
-          const updated = pollMap[d.id];
-          if (updated) {
-            d.status = updated.status;
-            d.latency = updated.latency;
-            if (updated.services) d.services = updated.services;
-            if (updated.poll_count != null) d.poll_count = updated.poll_count;
-          }
-        }
-      }
+      state.devices = data.devices;
       state.stats = data.stats || state.stats;
       if (state.selectedId && isPropsModalOpen()) {
         const d = findDevice(state.selectedId);
@@ -6743,6 +6740,74 @@
     state.pollIntervalMs = ms;
     startPollCountdownUi();
     state.pollTimer = setTimeout(() => poll(true), ms);
+  }
+
+  function clearAutomaticPortScanTimer() {
+    if (state.portPollTimer) {
+      clearTimeout(state.portPollTimer);
+      state.portPollTimer = null;
+    }
+  }
+
+  function scheduleAutomaticPortScan(delayMs = null) {
+    clearAutomaticPortScanTimer();
+    if (state.settings.port_scan_enabled === false) return;
+    const intervalMs = Math.max(
+      60000,
+      Number(state.settings.port_scan_interval_ms || 300000) || 300000,
+    );
+    const waitMs = delayMs === null ? intervalMs : Math.max(1000, Number(delayMs) || intervalMs);
+    state.portPollTimer = setTimeout(pollPortsAutomatic, waitMs);
+  }
+
+  function startAutomaticPortScanning() {
+    clearAutomaticPortScanTimer();
+    if (state.settings.port_scan_enabled === false) return;
+    // The API performs the authoritative due-time check. A short initial delay
+    // lets the first ping finish; a lock response is retried after five seconds.
+    scheduleAutomaticPortScan(1500);
+  }
+
+  async function pollPortsAutomatic() {
+    state.portPollTimer = null;
+    if (state.settings.port_scan_enabled === false) return;
+    if (state.portPollBusy || state.scanPortsBusy) {
+      scheduleAutomaticPortScan(5000);
+      return;
+    }
+
+    state.portPollBusy = true;
+    let retryMs = null;
+    try {
+      const data = await api('poll_ports', {});
+      if (data.skipped === 'locked') {
+        retryMs = 5000;
+        return;
+      }
+      if (data.skipped === 'port_scan_interval' && Number(data.next_in_ms) > 0) {
+        retryMs = Number(data.next_in_ms);
+      }
+      if (!data.skipped && Array.isArray(data.devices)) {
+        const current = Object.fromEntries(state.devices.map((device) => [device.id, device]));
+        for (const remote of data.devices) {
+          const local = current[remote.id];
+          if (!local) continue;
+          local.services = Array.isArray(remote.services) ? remote.services : [];
+          if (remote.ports_scanned_at) {
+            local.ports_scanned_at = remote.ports_scanned_at;
+          }
+        }
+        draw();
+        if (Number(data.next_in_ms) > 0) {
+          retryMs = Number(data.next_in_ms);
+        }
+      }
+    } catch (_) {
+      retryMs = 30000;
+    } finally {
+      state.portPollBusy = false;
+      scheduleAutomaticPortScan(retryMs);
+    }
   }
 
   function isLayoutLocked() {
@@ -7011,6 +7076,7 @@
     const zMax = Number(state.settings.zoom_max || 2.2);
     state.scale = Math.min(zMax, Math.max(zMin, state.scale));
     startPolling();
+    startAutomaticPortScanning();
     syncPollToggleUi();
     syncZoomUi();
     syncLockUi();
@@ -7028,9 +7094,23 @@
       el.setPollMethod.value = s.poll_method === 'sequential' ? 'sequential' : 'parallel';
     }
     if (el.setPingCount) {
-      el.setPingCount.value = Math.min(10, Math.max(1, Number(s.ping_count || 5)));
+      el.setPingCount.value = Math.min(5, Math.max(3, Number(s.ping_count || 5)));
     }
     el.setPortScan.checked = s.port_scan_enabled !== false;
+    if (el.setPortScanIntervalMin) {
+      el.setPortScanIntervalMin.value = Math.round(
+        Number(s.port_scan_interval_ms || 300000) / 60000,
+      );
+    }
+    if (el.setPortScanTimeout) {
+      el.setPortScanTimeout.value = Number(s.port_scan_timeout_ms || 350);
+    }
+    if (el.setPortScanConcurrency) {
+      el.setPortScanConcurrency.value = Math.min(
+        32,
+        Math.max(16, Number(s.port_scan_device_concurrency || 24)),
+      );
+    }
     if (el.setShowLabel) el.setShowLabel.checked = s.show_label !== false;
     if (el.setShowIp) el.setShowIp.checked = s.show_ip !== false;
     if (el.setShowLatency) el.setShowLatency.checked = s.show_latency !== false;
@@ -7088,8 +7168,12 @@
   }
 
   function syncPortScanExtrasUi() {
-    if (!el.portScanExtras || !el.setPortScan) return;
-    el.portScanExtras.classList.toggle('hidden', !el.setPortScan.checked);
+    if (!el.setPortScan) return;
+    const enabled = el.setPortScan.checked;
+    if (el.portScanExtras) el.portScanExtras.classList.toggle('hidden', !enabled);
+    if (el.portScanScheduleExtras) {
+      el.portScanScheduleExtras.classList.toggle('hidden', !enabled);
+    }
   }
 
   function syncBackgroundSchedUi() {
@@ -7314,8 +7398,19 @@
       poll_method: el.setPollMethod && el.setPollMethod.value === 'sequential'
         ? 'sequential'
         : 'parallel',
-      ping_count: Math.min(10, Math.max(1, Number(el.setPingCount?.value || 5))),
+      ping_count: Math.min(5, Math.max(3, Number(el.setPingCount?.value || 5))),
       port_scan_enabled: !!el.setPortScan.checked,
+      port_scan_interval_ms: Math.round(
+        Math.min(1440, Math.max(1, Number(el.setPortScanIntervalMin?.value || 5))) * 60000,
+      ),
+      port_scan_timeout_ms: Math.min(
+        5000,
+        Math.max(100, Number(el.setPortScanTimeout?.value || 350)),
+      ),
+      port_scan_device_concurrency: Math.min(
+        32,
+        Math.max(16, Number(el.setPortScanConcurrency?.value || 24)),
+      ),
       common_ports: portsRaw,
       common_port_notes: portNotes,
       scan_port_method: el.setScanPortMethod && el.setScanPortMethod.value === 'sequential'

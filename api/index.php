@@ -12,12 +12,6 @@ require_once __DIR__ . '/../includes/poll.php';
 pamantau_auth_boot();
 pamantau_auth_ensure_bootstrap();
 
-// Release session lock early for read/poll actions so long-running requests do not block UI
-$action = (string) ($_GET['action'] ?? '');
-if ($action !== 'login' && $action !== 'logout' && session_status() === PHP_SESSION_ACTIVE) {
-    session_write_close();
-}
-
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 
@@ -288,6 +282,9 @@ try {
                 'poll_method',
                 'ping_count',
                 'port_scan_enabled',
+                'port_scan_interval_ms',
+                'port_scan_timeout_ms',
+                'port_scan_device_concurrency',
                 'common_ports',
                 'common_port_notes',
                 'scan_port_method',
@@ -680,14 +677,29 @@ try {
         }
 
         case 'poll': {
-            // Shared cycle with cli/background.php (includes Telegram up/down hooks).
-            $poll = pamantau_run_poll_cycle();
+            $poll = pamantau_run_ping_cycle();
             json_out([
                 'ok' => true,
                 'results' => $poll['results'],
                 'devices' => $poll['devices'],
                 'stats' => $poll['stats'],
                 'polled_at' => $poll['polled_at'],
+                'skipped' => $poll['skipped'] ?? null,
+            ]);
+        }
+
+        case 'poll_ports': {
+            $force = !empty($body['force']);
+            $scan = pamantau_run_port_scan_cycle(null, !$force);
+            json_out([
+                'ok' => true,
+                'devices' => $scan['devices'] ?? pamantau_read('devices', []),
+                'scanned_at' => $scan['scanned_at'] ?? null,
+                'scanned_count' => $scan['scanned_count'] ?? 0,
+                'online_target_count' => $scan['online_target_count'] ?? 0,
+                'port_count' => $scan['port_count'] ?? 0,
+                'skipped' => $scan['skipped'] ?? null,
+                'next_in_ms' => $scan['next_in_ms'] ?? null,
             ]);
         }
 

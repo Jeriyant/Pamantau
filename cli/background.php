@@ -5,16 +5,16 @@ declare(strict_types=1);
  * Pamantau background worker — one poll cycle (+ optional Telegram screenshot).
  *
  * Respects settings.background_enabled (no-op when OFF).
- * Respects settings.poll_interval_ms: skips poll when the last successful
- * background poll was fewer than poll_interval_ms ago (cron may fire every
- * minute while Monitoring interval is e.g. 10–59s — worker self-paces).
+ * Ping and common-port discovery use independent last-run timestamps and
+ * intervals. The worker may be invoked frequently; each job self-paces.
  * Screenshot-due checks still run when poll is skipped.
  * Uses an exclusive flock so overlapping scheduler runs do not parallelize.
  *
  * ── Linux cron ─────────────────────────────────────────────────────────
- *   Suggested expression follows Monitoring poll_interval_ms (see app Settings).
- *   Minimum cron granularity is 1 minute; for sub-minute intervals use:
+ *   The worker self-paces both jobs. To honor a 30-second ping interval with
+ *   cron, invoke it at second 0 and second 30:
  *   * * * * * /usr/bin/php /path/to/Pamantau/cli/background.php >/dev/null 2>&1
+ *   * * * * * sleep 30; /usr/bin/php /path/to/Pamantau/cli/background.php >/dev/null 2>&1
  *
  * Note: Turning Background ON in app settings only allows this worker to run;
  * you still need cron to invoke this script.
@@ -61,23 +61,26 @@ try {
         set_time_limit(300);
     }
 
-    $pollIntervalMs = max(2000, (int) ($settings['poll_interval_ms'] ?? 30000));
-    $lastPollAt = (int) ($settings['background_last_poll_at'] ?? 0);
     $now = time();
-    $elapsedMs = $lastPollAt > 0 ? ($now - $lastPollAt) * 1000 : PHP_INT_MAX;
-    $pollTooSoon = $lastPollAt > 0 && $elapsedMs < $pollIntervalMs;
+    $pingIntervalMs = (int) ($settings['poll_interval_ms'] ?? 30000);
+    $pingLastAt = (int) ($settings['ping_last_poll_at'] ?? 0);
+    $pingDue = !empty($settings['polling_enabled'])
+        && ($pingLastAt <= 0 || (($now - $pingLastAt) * 1000) >= $pingIntervalMs);
 
-    $poll = null;
-    $pollSkipped = null;
-    if ($pollTooSoon) {
-        $pollSkipped = 'poll_interval';
-    } else {
-        $poll = pamantau_run_poll_cycle($settings);
-        // Persist last successful background poll time (unix ts).
-        $settings = pamantau_normalize_settings(pamantau_read('settings', []));
-        $settings['background_last_poll_at'] = time();
-        pamantau_write('settings', pamantau_normalize_settings($settings));
-    }
+    $portIntervalMs = (int) ($settings['port_scan_interval_ms'] ?? 300000);
+    $portLastAt = (int) ($settings['port_scan_last_poll_at'] ?? 0);
+    $portDue = !empty($settings['port_scan_enabled'])
+        && ($portLastAt <= 0 || (($now - $portLastAt) * 1000) >= $portIntervalMs);
+
+    $ping = $pingDue
+        ? pamantau_run_ping_cycle($settings)
+        : ['ok' => true, 'job' => 'ping', 'skipped' => 'ping_interval'];
+
+    // Ping persists its own timestamp and may change device status.
+    $settings = pamantau_normalize_settings(pamantau_read('settings', []));
+    $portScan = $portDue
+        ? pamantau_run_port_scan_cycle($settings, true)
+        : ['ok' => true, 'job' => 'port_scan', 'skipped' => 'port_scan_interval'];
 
     $screenshot = ['ok' => false, 'skipped' => true];
     // Re-read settings (poll / last_at may have changed; screenshot helper may touch last_at)
@@ -88,21 +91,29 @@ try {
 
     $out = [
         'ok' => true,
+        'jobs' => [
+            'ping' => [
+                'skipped' => $ping['skipped'] ?? null,
+                'polled_at' => $ping['polled_at'] ?? null,
+                'device_count' => is_array($ping['devices'] ?? null) ? count($ping['devices']) : 0,
+            ],
+            'port_scan' => [
+                'skipped' => $portScan['skipped'] ?? null,
+                'scanned_at' => $portScan['scanned_at'] ?? null,
+                'scanned_count' => $portScan['scanned_count'] ?? 0,
+                'online_target_count' => $portScan['online_target_count'] ?? 0,
+            ],
+        ],
         'screenshot' => [
             'ok' => !empty($screenshot['ok']),
             'skipped' => !empty($screenshot['skipped']),
             'error' => $screenshot['error'] ?? null,
         ],
     ];
-    if ($pollSkipped !== null) {
-        $out['skipped'] = $pollSkipped;
-        $out['poll_interval_ms'] = $pollIntervalMs;
-        $out['background_last_poll_at'] = $lastPollAt;
-    } else {
-        $out['polled_at'] = $poll['polled_at'] ?? date('c');
-        $out['device_count'] = is_array($poll['devices'] ?? null) ? count($poll['devices']) : 0;
-        $out['notifications'] = $poll['notifications'] ?? [];
+    if (!$pingDue && !$portDue) {
+        $out['skipped'] = 'job_intervals';
     }
+    $out['notifications'] = $ping['notifications'] ?? [];
 
     fwrite(STDOUT, json_encode($out, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) . "\n");
     exit(0);

@@ -73,6 +73,11 @@ function pamantau_default_settings(): array
         'poll_method' => 'parallel',
         'ping_count' => 5,
         'port_scan_enabled' => true,
+        'port_scan_interval_ms' => 300000,
+        'port_scan_timeout_ms' => 350,
+        'port_scan_device_concurrency' => 24,
+        'ping_last_poll_at' => 0,
+        'port_scan_last_poll_at' => 0,
         'common_ports' => [22, 23, 53, 80, 443, 1996, 2219, 2296, 3306, 3389, 8080, 8091, 8291, 8443, 8728],
         'common_port_notes' => [
             '22' => 'SSH',
@@ -173,8 +178,26 @@ function pamantau_normalize_settings(mixed $raw): array
     $out['ping_timeout_ms'] = min(5000, max(200, (int) $out['ping_timeout_ms']));
     $method = strtolower(trim((string) ($out['poll_method'] ?? 'parallel')));
     $out['poll_method'] = $method === 'sequential' ? 'sequential' : 'parallel';
-    $out['ping_count'] = min(10, max(1, (int) ($out['ping_count'] ?? 5)));
+    $out['ping_count'] = min(5, max(3, (int) ($out['ping_count'] ?? 5)));
     $out['port_scan_enabled'] = (bool) $out['port_scan_enabled'];
+    $out['port_scan_interval_ms'] = min(
+        86400000,
+        max(60000, (int) ($out['port_scan_interval_ms'] ?? 300000))
+    );
+    $out['port_scan_timeout_ms'] = min(
+        5000,
+        max(100, (int) ($out['port_scan_timeout_ms'] ?? 350))
+    );
+    $out['port_scan_device_concurrency'] = min(
+        32,
+        max(16, (int) ($out['port_scan_device_concurrency'] ?? 24))
+    );
+    $legacyLastPollAt = max(0, (int) ($out['background_last_poll_at'] ?? 0));
+    $out['ping_last_poll_at'] = array_key_exists('ping_last_poll_at', $in)
+        ? max(0, (int) $out['ping_last_poll_at'])
+        : $legacyLastPollAt;
+    $out['port_scan_last_poll_at'] = max(0, (int) ($out['port_scan_last_poll_at'] ?? 0));
+    unset($out['background_last_poll_at']);
     $portScanMethod = strtolower(trim((string) ($out['scan_port_method'] ?? 'parallel')));
     $out['scan_port_method'] = $portScanMethod === 'sequential' ? 'sequential' : 'parallel';
     $out['scan_port_max'] = min(10000, max(1, (int) ($out['scan_port_max'] ?? 1024)));
@@ -380,26 +403,22 @@ function pamantau_read_json_file(string $path, mixed $default = null): mixed
         return $default;
     }
 
-    // Try up to 5 times in case of transient write locks (Windows file sharing)
-    for ($attempt = 0; $attempt < 5; $attempt++) {
-        $fp = @fopen($path, 'rb');
-        if ($fp !== false) {
-            @flock($fp, LOCK_SH);
-            $raw = @stream_get_contents($fp);
-            @flock($fp, LOCK_UN);
-            @fclose($fp);
-
-            if (is_string($raw) && $raw !== '') {
-                $data = json_decode($raw, true);
-                if (json_last_error() === JSON_ERROR_NONE && is_array($data)) {
-                    return $data;
-                }
-            }
-        }
-        usleep(20000); // 20ms delay before retry
+    $fp = fopen($path, 'rb');
+    if ($fp === false) {
+        return $default;
     }
 
-    return $default;
+    flock($fp, LOCK_SH);
+    $raw = stream_get_contents($fp);
+    flock($fp, LOCK_UN);
+    fclose($fp);
+
+    if ($raw === false || $raw === '') {
+        return $default;
+    }
+
+    $data = json_decode($raw, true);
+    return json_last_error() === JSON_ERROR_NONE ? $data : $default;
 }
 
 function pamantau_migrate_legacy_store(): array
@@ -417,7 +436,7 @@ function pamantau_migrate_legacy_store(): array
 function pamantau_load_store(): array
 {
     if (!is_dir(PAMANTAU_DB_DIR)) {
-        @mkdir(PAMANTAU_DB_DIR, 0775, true);
+        mkdir(PAMANTAU_DB_DIR, 0775, true);
     }
 
     if (is_file(PAMANTAU_DB_FILE)) {
@@ -436,12 +455,17 @@ function pamantau_load_store(): array
         }
     }
 
-    // Migrate from old split JSON files once if main file does not exist at all
+    // Migrate from old split JSON files once
     $store = pamantau_migrate_legacy_store();
     $store['devices'] = pamantau_normalize_devices($store['devices'] ?? []);
     $store['connections'] = pamantau_normalize_connections($store['connections'] ?? []);
-    if (!is_file(PAMANTAU_DB_FILE)) {
-        pamantau_save_store($store);
+    pamantau_save_store($store);
+
+    foreach (['devices', 'connections', 'settings', 'stats'] as $key) {
+        $legacy = pamantau_legacy_path($key);
+        if (is_file($legacy)) {
+            @unlink($legacy);
+        }
     }
 
     return $store;
@@ -450,7 +474,7 @@ function pamantau_load_store(): array
 function pamantau_save_store(array $store): bool
 {
     if (!is_dir(PAMANTAU_DB_DIR)) {
-        @mkdir(PAMANTAU_DB_DIR, 0775, true);
+        mkdir(PAMANTAU_DB_DIR, 0775, true);
     }
 
     $payload = array_merge(pamantau_default_store(), $store);
@@ -464,14 +488,18 @@ function pamantau_save_store(array $store): bool
         return false;
     }
 
-    // Safely write to temp file and overwrite PAMANTAU_DB_FILE without ever unlinking it first
-    $tmpFile = PAMANTAU_DB_FILE . '.' . uniqid('tmp', true);
-    if (@file_put_contents($tmpFile, $json, LOCK_EX) === false) {
+    $fp = fopen(PAMANTAU_DB_FILE, 'cb');
+    if ($fp === false) {
         return false;
     }
 
-    $ok = @copy($tmpFile, PAMANTAU_DB_FILE);
-    @unlink($tmpFile);
+    flock($fp, LOCK_EX);
+    ftruncate($fp, 0);
+    rewind($fp);
+    $ok = fwrite($fp, $json) !== false;
+    fflush($fp);
+    flock($fp, LOCK_UN);
+    fclose($fp);
 
     return $ok;
 }
