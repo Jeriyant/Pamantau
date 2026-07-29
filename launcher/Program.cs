@@ -1,16 +1,31 @@
-namespace PamantauLauncher;
+using System;
+using System.Windows.Forms;
 
-static class Program
+namespace PamantauLauncher
 {
-    /// <summary>
-    ///  The main entry point for the application.
-    /// </summary>
-    [STAThread]
-    static void Main()
+    static class Program
     {
-        // To customize application configuration such as set high DPI settings or default font,
-        // see https://aka.ms/applicationconfiguration.
-        ApplicationConfiguration.Initialize();
-        Application.Run(new Form1());
-    }    
+        [STAThread]
+        static void Main()
+        {
+            Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
+            Application.ThreadException += (s, e) => {
+                MessageBox.Show($"Terjadi kesalahan:\n{e.Exception.Message}\n\nDetail:\n{e.Exception.StackTrace}", "Pamantau Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            };
+            AppDomain.CurrentDomain.UnhandledException += (s, e) => {
+                var ex = e.ExceptionObject as Exception;
+                MessageBox.Show($"Terjadi kesalahan fatal:\n{ex?.Message}\n\nDetail:\n{ex?.StackTrace}", "Pamantau Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            };
+
+            try
+            {
+                ApplicationConfiguration.Initialize();
+                Application.Run(new Form1());
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Gagal membuka Pamantau:\n{ex.Message}\n\nDetail:\n{ex.StackTrace}", "Pamantau Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+    }
 }

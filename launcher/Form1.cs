@@ -122,7 +122,6 @@ namespace PamantauLauncher
                 BackColor = Color.FromArgb(239, 68, 68), // Red
                 ForeColor = Color.White
             };
-            _lblStatusBadge.Region = Region.FromHrgn(CreateRoundRectRgn(0, 0, _lblStatusBadge.Width, _lblStatusBadge.Height, 12, 12));
 
             _headerPanel.Controls.Add(_lblTitle);
             _headerPanel.Controls.Add(_lblSubtitle);
