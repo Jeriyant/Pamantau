@@ -934,7 +934,7 @@ $pamantauAuth = pamantau_auth_public_payload();
               <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12v-1a8 8 0 0 1 14.93-4M20 12v1a8 8 0 0 1-14.93 4M4 8H8M4 8V4M20 16H16M20 16V20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
               <span data-i18n="update.check_now">Cek update</span>
             </button>
-            <button type="button" class="btn save" id="btnUpdateInstall" disabled>
+            <button type="button" class="btn save hidden" id="btnUpdateInstall" disabled>
               <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v11m0 0l-4-4m4 4l4-4M4 20h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
               <span data-i18n="update.install">Update Sekarang</span>
             </button>

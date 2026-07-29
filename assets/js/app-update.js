@@ -332,6 +332,9 @@
       async check({ silent } = {}) {
         if (abort) abort.abort();
         abort = new AbortController();
+        const btnCheck = document.getElementById('btnUpdateCheck');
+        const btnInstall = document.getElementById('btnUpdateInstall');
+        if (btnCheck) btnCheck.disabled = true;
         if (!silent) setSettingsStatus(t('update.checking'), false);
         try {
           const release = await fetchLatestRelease(abort.signal);
@@ -345,8 +348,15 @@
               latValEl.innerHTML = `v${release.version} <span class="version-tag ok">${t('update.up_to_date_badge')}</span>`;
             }
           }
-          const btnInstall = document.getElementById('btnUpdateInstall');
-          if (btnInstall) btnInstall.disabled = !newer || !release.downloadUrl || applying;
+          if (btnInstall) {
+            if (newer && release.downloadUrl) {
+              btnInstall.classList.remove('hidden');
+              btnInstall.disabled = applying;
+            } else {
+              btnInstall.classList.add('hidden');
+              btnInstall.disabled = true;
+            }
+          }
           if (!newer) {
             setSettingsStatus(t('update.up_to_date'), false);
             const banner = document.getElementById('updateBanner');
@@ -357,11 +367,18 @@
           if (!isDismissed(release.tag)) showBanner(release, api);
           return release;
         } catch (err) {
+          if (err && err.name === 'AbortError') return null;
           const latValEl = document.getElementById('updateLatestVersionVal');
           if (latValEl) latValEl.textContent = '-';
+          if (btnInstall) {
+            btnInstall.classList.add('hidden');
+            btnInstall.disabled = true;
+          }
           setSettingsStatus(t('update.check_failed'), true);
           if (!silent) console.warn('[Pamantau update]', err);
           return null;
+        } finally {
+          if (btnCheck) btnCheck.disabled = false;
         }
       },
       async apply(release, hosts) {
@@ -416,15 +433,22 @@
     };
 
     const btnCheck = document.getElementById('btnUpdateCheck');
-    if (btnCheck) btnCheck.addEventListener('click', () => { void api.check(); });
+    if (btnCheck) {
+      btnCheck.addEventListener('click', (e) => {
+        e.preventDefault();
+        void api.check({ silent: false });
+      });
+    }
     const btnInstall = document.getElementById('btnUpdateInstall');
     if (btnInstall) {
-      btnInstall.disabled = true;
-      btnInstall.addEventListener('click', () => { void api.apply(latest, {
-        progressHost: document.getElementById('updateProgressHost'),
-        errorHost: document.getElementById('updateSettingsError'),
-        installBtn: btnInstall,
-      }); });
+      btnInstall.addEventListener('click', (e) => {
+        e.preventDefault();
+        void api.apply(latest, {
+          progressHost: document.getElementById('updateProgressHost'),
+          errorHost: document.getElementById('updateSettingsError'),
+          installBtn: btnInstall,
+        });
+      });
     }
     if (badge) {
       badge.addEventListener('click', () => { void api.check(); });
