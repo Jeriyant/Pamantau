@@ -238,8 +238,6 @@
     if (msg) msg.textContent = (progress && progress.message) || '…';
   }
 
-  function showBanner(latest, api) {
-    const root = document.getElementById('updateBanner');
   function setBtnText(btn, text) {
     if (!btn) return;
     const labelSpan = btn.querySelector('span[data-i18n], span.btn-label, span');
