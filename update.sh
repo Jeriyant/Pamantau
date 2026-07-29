@@ -432,10 +432,18 @@ def write(stage, percent, message):
 
 write("extract", 5, "Memeriksa arsip…")
 with zipfile.ZipFile(zip_path) as z:
-    names = z.namelist()
-    total = max(len(names), 1)
-    for i, name in enumerate(names, 1):
-        z.extract(name, dest)
+    members = z.infolist()
+    total = max(len(members), 1)
+    for i, member in enumerate(members, 1):
+        target_path = member.filename.replace('\\', '/')
+        if target_path.endswith('/'):
+            os.makedirs(os.path.join(dest, target_path), exist_ok=True)
+        else:
+            target_full = os.path.join(dest, target_path)
+            os.makedirs(os.path.dirname(target_full), exist_ok=True)
+            with z.open(member) as source, open(target_full, "wb") as target_file:
+                import shutil
+                shutil.copyfileobj(source, target_file)
         if i == 1 or i == total or i % 5 == 0:
             pct = int(i * 100 / total)
             write("extract", pct, f"Mengekstrak… {i}/{total}")
@@ -467,6 +475,22 @@ if [[ "$EXTRACT_OK" != true ]] && have_cmd unzip; then
 fi
 
 [[ "$EXTRACT_OK" == true ]] || fail "extract gagal${EXTRACT_ERR:+: $EXTRACT_ERR}"
+
+# Normalize any leftover backslash filenames if present (e.g. from unzip)
+if have_cmd python3; then
+  python3 - "$EXTRACT_TMP" <<'PY'
+import os, sys, shutil
+dest = sys.argv[1]
+for root, dirs, files in os.walk(dest, topdown=False):
+    for f in files:
+        if '\\' in f:
+            old_path = os.path.join(root, f)
+            new_rel = f.replace('\\', '/')
+            new_path = os.path.join(root, new_rel)
+            os.makedirs(os.path.dirname(new_path), exist_ok=True)
+            shutil.move(old_path, new_path)
+PY
+fi
 
 write_progress "extract" 100 "Ekstrak selesai" 0 0
 
