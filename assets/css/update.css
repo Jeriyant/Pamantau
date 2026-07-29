@@ -53,6 +53,11 @@
   cursor: pointer;
   border: 1px solid transparent;
 }
+.update-banner-btn svg {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
 .update-banner-btn.primary {
   background: var(--accent);
   color: #fff;

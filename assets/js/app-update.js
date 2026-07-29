@@ -217,6 +217,18 @@
 
   function showBanner(latest, api) {
     const root = document.getElementById('updateBanner');
+  function setBtnText(btn, text) {
+    if (!btn) return;
+    const labelSpan = btn.querySelector('span[data-i18n], span.btn-label, span');
+    if (labelSpan) {
+      labelSpan.textContent = text;
+    } else {
+      btn.textContent = text;
+    }
+  }
+
+  function showBanner(latest, api) {
+    const root = document.getElementById('updateBanner');
     if (!root || !latest) return;
     root.classList.remove('hidden');
     root.innerHTML = `
@@ -227,9 +239,18 @@
         <span class="update-banner-error hidden"></span>
       </div>
       <div class="update-banner-actions">
-        <button type="button" class="update-banner-btn primary" data-act="install"></button>
-        <a class="update-banner-btn ghost" data-act="view" target="_blank" rel="noopener noreferrer"></a>
-        <button type="button" class="update-banner-btn ghost" data-act="later"></button>
+        <button type="button" class="update-banner-btn primary" data-act="install">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v11m0 0l-4-4m4 4l4-4M4 20h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span data-i18n="update.install"></span>
+        </button>
+        <a class="update-banner-btn ghost" data-act="view" target="_blank" rel="noopener noreferrer">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14L21 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span data-i18n="update.view_release"></span>
+        </a>
+        <button type="button" class="update-banner-btn ghost" data-act="later">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.8"/><path d="M12 7v5l3 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          <span data-i18n="update.later"></span>
+        </button>
         <button type="button" class="update-banner-close" data-act="later" aria-label="Close">×</button>
       </div>`;
     root.querySelector('strong').textContent = t('update.available', { version: latest.version });
@@ -240,16 +261,16 @@
       note.classList.toggle('hidden', !preview);
     }
     const installBtn = root.querySelector('[data-act="install"]');
-    if (installBtn) installBtn.textContent = t('update.install');
+    if (installBtn) setBtnText(installBtn, t('update.install'));
     const view = root.querySelector('[data-act="view"]');
     if (view) {
       view.href = latest.htmlUrl;
-      view.textContent = t('update.view_release');
+      setBtnText(view, t('update.view_release'));
     }
     const laterBtns = root.querySelectorAll('[data-act="later"]');
     laterBtns.forEach((btn) => {
       if (btn.tagName === 'BUTTON' && !btn.classList.contains('update-banner-close')) {
-        btn.textContent = t('update.later');
+        setBtnText(btn, t('update.later'));
       }
       btn.addEventListener('click', () => {
         dismiss(latest.tag);
@@ -318,12 +339,12 @@
         applying = true;
         if (hosts && hosts.installBtn) {
           hosts.installBtn.disabled = true;
-          hosts.installBtn.textContent = t('update.applying');
+          setBtnText(hosts.installBtn, t('update.applying'));
         }
         const settingsInstall = document.getElementById('btnUpdateInstall');
         if (settingsInstall) {
           settingsInstall.disabled = true;
-          settingsInstall.textContent = t('update.applying');
+          setBtnText(settingsInstall, t('update.applying'));
         }
         try {
           const result = await applyServerUpdate(null, (progress) => {
@@ -342,11 +363,11 @@
             applying = false;
             if (hosts && hosts.installBtn) {
               hosts.installBtn.disabled = false;
-              hosts.installBtn.textContent = t('update.install');
+              setBtnText(hosts.installBtn, t('update.install'));
             }
             if (settingsInstall) {
               settingsInstall.disabled = false;
-              settingsInstall.textContent = t('update.install');
+              setBtnText(settingsInstall, t('update.install'));
             }
             return;
           }

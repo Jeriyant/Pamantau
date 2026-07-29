@@ -917,8 +917,14 @@ $pamantauAuth = pamantau_auth_public_payload();
           <div id="updateProgressHost"></div>
           <p id="updateSettingsError" class="update-banner-error hidden"></p>
           <div class="update-settings-actions">
-            <button type="button" class="btn" id="btnUpdateCheck" data-i18n="update.check_now">Cek update</button>
-            <button type="button" class="btn save" id="btnUpdateInstall" disabled data-i18n="update.install">Pasang update</button>
+            <button type="button" class="btn" id="btnUpdateCheck">
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 12v-1a8 8 0 0 1 14.93-4M20 12v1a8 8 0 0 1-14.93 4M4 8H8M4 8V4M20 16H16M20 16V20" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span data-i18n="update.check_now">Cek update</span>
+            </button>
+            <button type="button" class="btn save" id="btnUpdateInstall" disabled>
+              <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v11m0 0l-4-4m4 4l4-4M4 20h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              <span data-i18n="update.install">Update Sekarang</span>
+            </button>
           </div>
         </section>
 
