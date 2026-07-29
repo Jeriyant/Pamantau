@@ -24,3 +24,7 @@ JNET.json
 # Build / release artifacts
 dist-pack/
 pamantau-dist.zip
+pamantau-portable/
+pamantau-portable.zip
+launcher/bin/
+launcher/obj/
