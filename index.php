@@ -913,6 +913,19 @@ $pamantauAuth = pamantau_auth_public_payload();
         <section class="settings-section" id="settingsUpdateSection">
           <h3 data-i18n="update.section">Update</h3>
           <p class="settings-desc" data-i18n="update.desc">Periksa dan pasang versi baru dari GitHub Releases. Data di folder database tetap aman.</p>
+          
+          <div class="update-version-card">
+            <div class="update-version-item">
+              <span class="update-version-label" data-i18n="update.current_version_label">Versi saat ini</span>
+              <span class="update-version-val" id="updateCurrentVersionVal">v<?= htmlspecialchars($pamantauVersion, ENT_QUOTES, 'UTF-8') ?></span>
+            </div>
+            <div class="update-version-divider"></div>
+            <div class="update-version-item">
+              <span class="update-version-label" data-i18n="update.latest_version_label">Versi rilis GitHub</span>
+              <span class="update-version-val" id="updateLatestVersionVal">-</span>
+            </div>
+          </div>
+
           <p id="updateStatusText" class="settings-desc" data-i18n="update.idle">Belum diperiksa.</p>
           <div id="updateProgressHost"></div>
           <p id="updateSettingsError" class="update-banner-error hidden"></p>

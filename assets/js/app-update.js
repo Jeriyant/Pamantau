@@ -298,6 +298,9 @@
     const badge = document.getElementById('appVersionBadge');
     if (badge) badge.textContent = `v${current}`;
 
+    const curValEl = document.getElementById('updateCurrentVersionVal');
+    if (curValEl) curValEl.textContent = `v${current}`;
+
     let latest = null;
     let applying = false;
     let abort = null;
@@ -311,6 +314,14 @@
           const release = await fetchLatestRelease(abort.signal);
           latest = release;
           const newer = compareSemver(release.version, current) > 0;
+          const latValEl = document.getElementById('updateLatestVersionVal');
+          if (latValEl) {
+            if (newer) {
+              latValEl.innerHTML = `v${release.version} <span class="version-tag newer">${t('update.available_badge')}</span>`;
+            } else {
+              latValEl.innerHTML = `v${release.version} <span class="version-tag ok">${t('update.up_to_date_badge')}</span>`;
+            }
+          }
           const btnInstall = document.getElementById('btnUpdateInstall');
           if (btnInstall) btnInstall.disabled = !newer || !release.downloadUrl || applying;
           if (!newer) {
@@ -323,6 +334,8 @@
           if (!isDismissed(release.tag)) showBanner(release, api);
           return release;
         } catch (err) {
+          const latValEl = document.getElementById('updateLatestVersionVal');
+          if (latValEl) latValEl.textContent = '-';
           setSettingsStatus(t('update.check_failed'), true);
           if (!silent) console.warn('[Pamantau update]', err);
           return null;
