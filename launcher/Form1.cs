@@ -158,11 +158,11 @@ namespace PamantauLauncher
 
             _lblSubtitle = new Label
             {
-                Text = "Sistem Monitoring Jaringan & Host — Standalone Web Server",
+                Text = "Standalone Portable PHP Web Server",
                 Location = new Point(98, 58),
-                Size = new Size(370, 24),
+                Size = new Size(380, 24),
                 AutoSize = false,
-                Font = new Font("Segoe UI", 8.5F, FontStyle.Regular),
+                Font = new Font("Segoe UI", 9F, FontStyle.Regular),
                 ForeColor = Color.FromArgb(148, 163, 184)
             };
 
