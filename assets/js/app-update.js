@@ -314,6 +314,7 @@
   function setSettingsStatus(text, isError) {
     const el = document.getElementById('updateStatusText');
     if (!el) return;
+    el.removeAttribute('data-i18n');
     el.textContent = text;
     el.classList.toggle('is-error', !!isError);
   }

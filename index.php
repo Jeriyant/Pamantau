@@ -926,7 +926,7 @@ $pamantauAuth = pamantau_auth_public_payload();
             </div>
           </div>
 
-          <p id="updateStatusText" class="settings-desc" data-i18n="update.idle">Belum diperiksa.</p>
+          <p id="updateStatusText" class="settings-desc">Belum diperiksa.</p>
           <div id="updateProgressHost"></div>
           <p id="updateSettingsError" class="update-banner-error hidden"></p>
           <div class="update-settings-actions">
