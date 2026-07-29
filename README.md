@@ -4,7 +4,7 @@ Monitor topologi jaringan langsung (PHP + vanilla JS).
 
 ## Versi
 
-Sumber versi: `version.json` (saat ini **1.2.2**).
+Sumber versi: `version.json` (saat ini **1.2.3**).
 
 ## Update dari GitHub (seperti FO-Simulator)
 
