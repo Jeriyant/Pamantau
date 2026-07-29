@@ -197,8 +197,9 @@
   }
 
   function t(key, vars) {
-    if (global.I18N && typeof global.I18N.t === 'function') {
-      return global.I18N.t(key, vars);
+    const i18n = global.PamantauI18n || global.I18N;
+    if (i18n && typeof i18n.t === 'function') {
+      return i18n.t(key, vars);
     }
     return key;
   }
