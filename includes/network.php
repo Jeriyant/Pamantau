@@ -58,7 +58,7 @@ function pamantau_parse_ping_output(string $text, int $code, float $elapsedMs = 
 {
     $latency = null;
     $subMs = false;
-    if (preg_match('/time([=<])\s*([\d.]+)\s*ms/i', $text, $m)) {
+    if (preg_match('/(?:time|waktu)([=<])\s*([\d.]+)\s*ms/i', $text, $m)) {
         $latency = (float) $m[2];
         $subMs = ($m[1] === '<') || $latency < 1;
         $latency = (int) round($latency);
@@ -73,7 +73,8 @@ function pamantau_parse_ping_output(string $text, int $code, float $elapsedMs = 
         $ttl = (int) $tm[1];
     }
 
-    $alive = ($code === 0) || ($latency !== null && stripos($text, 'ttl=') !== false);
+    $hasReply = (stripos($text, 'ttl=') !== false) || (stripos($text, 'bytes=') !== false) || (stripos($text, 'byte=') !== false) || (stripos($text, 'reply from') !== false) || (stripos($text, 'balasan dari') !== false);
+    $alive = ($code === 0 && ($hasReply || $latency !== null)) || ($latency !== null && $hasReply);
 
     $out = [
         'alive' => $alive,
@@ -118,7 +119,7 @@ function pamantau_ping(string $ip, int $timeoutMs = 1000): array
 }
 
 /**
- * Ping many hosts concurrently (one echo each) via proc_open.
+ * Ping many hosts concurrently (in batches of 16) via proc_open.
  * Returns map of host => ping result array.
  *
  * @param list<string> $hosts
@@ -139,84 +140,87 @@ function pamantau_ping_parallel(array $hosts, int $timeoutMs = 1000): array
     }
 
     $results = [];
-    $handles = [];
+    $chunks = array_chunk($unique, 16);
 
-    foreach ($unique as $ip) {
-        $cmd = pamantau_ping_command($ip, $timeoutMs);
-        if ($cmd === null) {
-            $results[$ip] = ['alive' => false, 'latency' => null, 'elapsed_ms' => 0.0, 'error' => 'invalid_ip'];
-            continue;
-        }
+    foreach ($chunks as $chunk) {
+        $handles = [];
 
-        $descriptors = [
-            0 => ['pipe', 'r'],
-            1 => ['pipe', 'w'],
-            2 => ['pipe', 'w'],
-        ];
-        $pipes = [];
-        $proc = @proc_open($cmd, $descriptors, $pipes, null, null, ['bypass_shell' => true]);
-        if (!is_resource($proc)) {
-            // Fallback: sequential ping for this host only
-            $results[$ip] = pamantau_ping($ip, $timeoutMs);
-            continue;
-        }
-        fclose($pipes[0]);
-        stream_set_blocking($pipes[1], false);
-        stream_set_blocking($pipes[2], false);
-        $handles[$ip] = [
-            'proc' => $proc,
-            'out' => $pipes[1],
-            'err' => $pipes[2],
-            'buf' => '',
-            'start' => microtime(true),
-        ];
-    }
-
-    $deadline = microtime(true) + max(2.0, ($timeoutMs / 1000) + 2.0);
-
-    while ($handles !== []) {
-        foreach ($handles as $ip => $h) {
-            $chunkOut = stream_get_contents($h['out']);
-            $chunkErr = stream_get_contents($h['err']);
-            if ($chunkOut !== false && $chunkOut !== '') {
-                $h['buf'] .= $chunkOut;
-            }
-            if ($chunkErr !== false && $chunkErr !== '') {
-                $h['buf'] .= $chunkErr;
-            }
-
-            $status = proc_get_status($h['proc']);
-            $timedOut = microtime(true) >= $deadline;
-            if ($status['running'] && !$timedOut) {
-                $handles[$ip] = $h;
+        foreach ($chunk as $ip) {
+            $cmd = pamantau_ping_command($ip, $timeoutMs);
+            if ($cmd === null) {
+                $results[$ip] = ['alive' => false, 'latency' => null, 'elapsed_ms' => 0.0, 'error' => 'invalid_ip'];
                 continue;
             }
 
-            if ($status['running']) {
-                proc_terminate($h['proc']);
-                $status = proc_get_status($h['proc']);
+            $descriptors = [
+                0 => ['pipe', 'r'],
+                1 => ['pipe', 'w'],
+                2 => ['pipe', 'w'],
+            ];
+            $pipes = [];
+            $proc = @proc_open($cmd, $descriptors, $pipes, null, null, ['bypass_shell' => true]);
+            if (!is_resource($proc)) {
+                $results[$ip] = pamantau_ping($ip, $timeoutMs);
+                continue;
             }
-
-            $restOut = stream_get_contents($h['out']);
-            $restErr = stream_get_contents($h['err']);
-            if ($restOut !== false) {
-                $h['buf'] .= $restOut;
-            }
-            if ($restErr !== false) {
-                $h['buf'] .= $restErr;
-            }
-            fclose($h['out']);
-            fclose($h['err']);
-            $code = proc_close($h['proc']);
-            if (!is_int($code) || $code < 0) {
-                $code = (int) ($status['exitcode'] ?? 1);
-            }
-            $elapsedMs = (microtime(true) - $h['start']) * 1000;
-            $results[$ip] = pamantau_parse_ping_output($h['buf'], $code, $elapsedMs);
-            unset($handles[$ip]);
+            fclose($pipes[0]);
+            stream_set_blocking($pipes[1], false);
+            stream_set_blocking($pipes[2], false);
+            $handles[$ip] = [
+                'proc' => $proc,
+                'out' => $pipes[1],
+                'err' => $pipes[2],
+                'buf' => '',
+                'start' => microtime(true),
+            ];
         }
-        if ($handles !== []) {
-            usleep(3000);
+
+        $deadline = microtime(true) + max(2.5, ($timeoutMs / 1000) + 1.5);
+
+        while ($handles !== []) {
+            foreach ($handles as $ip => $h) {
+                $chunkOut = stream_get_contents($h['out']);
+                $chunkErr = stream_get_contents($h['err']);
+                if ($chunkOut !== false && $chunkOut !== '') {
+                    $h['buf'] .= $chunkOut;
+                }
+                if ($chunkErr !== false && $chunkErr !== '') {
+                    $h['buf'] .= $chunkErr;
+                }
+
+                $status = proc_get_status($h['proc']);
+                $timedOut = microtime(true) >= $deadline;
+                if ($status['running'] && !$timedOut) {
+                    $handles[$ip] = $h;
+                    continue;
+                }
+
+                if ($status['running']) {
+                    @proc_terminate($h['proc']);
+                    $status = proc_get_status($h['proc']);
+                }
+
+                $restOut = stream_get_contents($h['out']);
+                $restErr = stream_get_contents($h['err']);
+                if ($restOut !== false) {
+                    $h['buf'] .= $restOut;
+                }
+                if ($restErr !== false) {
+                    $h['buf'] .= $restErr;
+                }
+                fclose($h['out']);
+                fclose($h['err']);
+                $code = proc_close($h['proc']);
+                if (!is_int($code) || $code < 0) {
+                    $code = (int) ($status['exitcode'] ?? 1);
+                }
+                $elapsedMs = (microtime(true) - $h['start']) * 1000;
+                $results[$ip] = pamantau_parse_ping_output($h['buf'], $code, $elapsedMs);
+                unset($handles[$ip]);
+            }
+            if ($handles !== []) {
+                usleep(3000);
+            }
         }
     }
 
