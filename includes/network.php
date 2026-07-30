@@ -1287,6 +1287,34 @@ function pamantau_aggregate_daily_range(array $deviceDays, string $from, string 
     return $agg;
 }
 
+/**
+ * Build one row per calendar date, including dates with no samples.
+ *
+ * @return list<array{date:string,online_samples:int,offline_samples:int,poll_total:int,online_ratio:float,offline_ratio:float,has_data:bool}>
+ */
+function pamantau_daily_report_rows(array $deviceDays, string $from, string $to): array
+{
+    $rows = [];
+    $cursor = new DateTimeImmutable($from);
+    $end = new DateTimeImmutable($to);
+    while ($cursor <= $end) {
+        $day = $cursor->format('Y-m-d');
+        $hasData = isset($deviceDays[$day]) && is_array($deviceDays[$day]);
+        $bucket = $hasData ? $deviceDays[$day] : pamantau_empty_daily_bucket();
+        $rows[] = [
+            'date' => $day,
+            'online_samples' => (int) ($bucket['online_samples'] ?? 0),
+            'offline_samples' => (int) ($bucket['offline_samples'] ?? 0),
+            'poll_total' => pamantau_poll_total($bucket),
+            'online_ratio' => pamantau_online_ratio($bucket),
+            'offline_ratio' => pamantau_offline_ratio($bucket),
+            'has_data' => $hasData,
+        ];
+        $cursor = $cursor->modify('+1 day');
+    }
+    return $rows;
+}
+
 /** @return bool True when $value matches YYYY-MM-DD. */
 function pamantau_valid_date_ymd(string $value): bool
 {

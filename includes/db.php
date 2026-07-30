@@ -136,8 +136,8 @@ function pamantau_default_settings(): array
         'telegram_chat_id' => '',
         'telegram_notify_up' => true,
         'telegram_notify_down' => true,
-        'telegram_tpl_up' => '{label} ({ip}) UP — {latency} ms @ {time}',
-        'telegram_tpl_down' => '{label} ({ip}) DOWN @ {time}',
+        'telegram_tpl_up' => '{label} ({ip}) ONLINE — {latency} ms @ {time}',
+        'telegram_tpl_down' => '{label} ({ip}) OFFLINE @ {time}',
         'telegram_screenshot_enabled' => false,
         'telegram_screenshot_format' => 'png',
         'telegram_screenshot_schedule_mode' => 'interval',
@@ -242,6 +242,9 @@ function pamantau_normalize_settings(mixed $raw): array
     $out['grid_size'] = min(64, max(8, (int) $out['grid_size']));
     $out['show_grid'] = (bool) $out['show_grid'];
     $out['snap_drag'] = (bool) $out['snap_drag'];
+    if (!$out['show_grid']) {
+        $out['snap_drag'] = false;
+    }
     $out['layout_locked'] = (bool) $out['layout_locked'];
     $validThemes = ['light', 'dark', 'sand'];
     $theme = strtolower(trim((string) ($out['theme'] ?? 'light')));
@@ -277,6 +280,12 @@ function pamantau_normalize_settings(mixed $raw): array
     $out['telegram_notify_down'] = (bool) ($out['telegram_notify_down'] ?? true);
     $tplUp = trim((string) ($out['telegram_tpl_up'] ?? ''));
     $tplDown = trim((string) ($out['telegram_tpl_down'] ?? ''));
+    if ($tplUp === '{label} ({ip}) UP — {latency} ms @ {time}') {
+        $tplUp = $defaults['telegram_tpl_up'];
+    }
+    if ($tplDown === '{label} ({ip}) DOWN @ {time}') {
+        $tplDown = $defaults['telegram_tpl_down'];
+    }
     $out['telegram_tpl_up'] = $tplUp !== ''
         ? $tplUp
         : $defaults['telegram_tpl_up'];

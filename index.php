@@ -3,16 +3,24 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/includes/db.php';
 require_once __DIR__ . '/includes/auth.php';
+require_once __DIR__ . '/includes/topology_snapshot.php';
 
 pamantau_auth_boot();
 pamantau_auth_ensure_bootstrap();
 
-if (!pamantau_auth_logged_in()) {
+$pamantauHeadlessToken = trim((string) ($_GET['headless_snapshot'] ?? ''));
+$pamantauHeadlessMode = $pamantauHeadlessToken !== ''
+  && pamantau_headless_token_valid($pamantauHeadlessToken);
+
+if (!$pamantauHeadlessMode && !pamantau_auth_logged_in()) {
   header('Location: login.php');
   exit;
 }
 
-$pamantauAuth = pamantau_auth_public_payload();
+pamantau_record_runtime_base_url();
+$pamantauAuth = $pamantauHeadlessMode
+  ? ['username' => '', 'logged_in' => false]
+  : pamantau_auth_public_payload();
 ?>
 <!DOCTYPE html>
 <html lang="id" data-theme="light">
@@ -22,14 +30,11 @@ $pamantauAuth = pamantau_auth_public_payload();
   <title>Pamantau</title>
   <link rel="icon" href="assets/img/favicon.svg" type="image/svg+xml" />
   <link rel="apple-touch-icon" href="assets/img/logo.svg" />
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Oxanium:wght@600;700;800&family=Sora:wght@400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="assets/css/app.css?v=<?= (int) @filemtime(__DIR__ . '/assets/css/app.css') ?>" />
   <link rel="stylesheet" href="assets/css/update.css?v=<?= (int) @filemtime(__DIR__ . '/assets/css/update.css') ?>" />
 <?php
   $pamantauVersionFile = __DIR__ . '/version.json';
-  $pamantauVersion = '1.4.0';
+  $pamantauVersion = '1.5.0';
   if (is_file($pamantauVersionFile)) {
     $vj = json_decode((string) @file_get_contents($pamantauVersionFile), true);
     if (is_array($vj) && !empty($vj['version'])) {
@@ -39,6 +44,7 @@ $pamantauAuth = pamantau_auth_public_payload();
 ?>
   <script>window.PAMANTAU_VERSION = <?= json_encode($pamantauVersion, JSON_UNESCAPED_UNICODE) ?>;</script>
   <script>window.PAMANTAU_AUTH = <?= json_encode($pamantauAuth, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;</script>
+  <script>window.PAMANTAU_HEADLESS_SNAPSHOT_TOKEN = <?= json_encode($pamantauHeadlessMode ? $pamantauHeadlessToken : '', JSON_UNESCAPED_SLASHES) ?>;</script>
 </head>
 <body>
   <div id="app">
@@ -131,6 +137,14 @@ $pamantauAuth = pamantau_auth_public_payload();
                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8" stroke="currentColor" stroke-width="1.7"/><path d="M12 8v4.5l3 2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
                 <span data-i18n="reports.latency">Latency</span>
               </button>
+              <button type="button" data-report="ports" role="menuitem">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="5" width="16" height="14" rx="2" stroke="currentColor" stroke-width="1.7"/><path d="M8 9h3M8 13h8M8 17h5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                <span data-i18n="reports.ports">Port</span>
+              </button>
+              <button type="button" data-report="individual" role="menuitem">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8" r="3" stroke="currentColor" stroke-width="1.7"/><path d="M5.5 19c.8-3.5 3-5.5 6.5-5.5s5.7 2 6.5 5.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                <span data-i18n="reports.individual">Individu 30 Hari</span>
+              </button>
             </div>
           </div>
 
@@ -149,7 +163,7 @@ $pamantauAuth = pamantau_auth_public_payload();
                 <div id="telegramMenu" class="file-submenu" role="menu">
                   <button type="button" data-telegram="updown" role="menuitem">
                     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 14.5 12 19.5 17 14.5M7 9.5 12 4.5 17 9.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                    <span data-i18n="notif.updown">Up/Down</span>
+                    <span data-i18n="notif.updown">Online/Offline</span>
                   </button>
                   <button type="button" data-telegram="screenshot" role="menuitem">
                     <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="6.5" width="17" height="12" rx="2" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12.5" r="3.2" stroke="currentColor" stroke-width="1.7"/><path d="M8.5 6.5 9.8 4.5h4.4L15.5 6.5" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
@@ -753,13 +767,18 @@ $pamantauAuth = pamantau_auth_public_payload();
         </div>
       </header>
       <div id="reportPeriodGate" class="report-period-gate">
-        <p class="report-period-desc" data-i18n="report.period_desc">Pilih rentang tanggal laporan. Data harian dikumpulkan sejak fitur ini aktif (zona waktu server).</p>
-        <div class="report-period-fields">
+        <p class="report-period-desc" id="reportPeriodDesc" data-i18n="report.period_desc">Pilih rentang tanggal laporan. Data harian dikumpulkan sejak fitur ini aktif (zona waktu server).</p>
+        <div class="report-period-fields" id="reportDateFields">
           <label><span data-i18n="report.from">Dari</span>
             <input type="date" id="reportDateFrom" required />
           </label>
           <label><span data-i18n="report.to">Sampai</span>
             <input type="date" id="reportDateTo" required />
+          </label>
+        </div>
+        <div class="report-period-fields hidden" id="reportDeviceField">
+          <label><span data-i18n="report.device">Perangkat</span>
+            <select id="reportDeviceSelect"></select>
           </label>
         </div>
         <p id="reportPeriodError" class="report-period-error hidden" role="alert"></p>
@@ -1096,7 +1115,7 @@ $pamantauAuth = pamantau_auth_public_payload();
               <input type="number" id="setGridSize" min="8" max="64" step="2" />
             </label>
           </div>
-          <label class="switch-row">
+          <label class="switch-row" id="snapDragRow">
             <span class="switch-text" data-i18n="grid.snap">Snap ke grid saat drag</span>
             <span class="switch">
               <input type="checkbox" id="setSnapDrag" role="switch" />
@@ -1256,40 +1275,40 @@ $pamantauAuth = pamantau_auth_public_payload();
   <div id="modalTgUpDown" class="modal hidden" aria-hidden="true">
     <div class="modal-card scan-card tg-card">
       <header>
-        <h2 data-i18n="tg.updown_title">Telegram Up/Down</h2>
+        <h2 data-i18n="tg.updown_title">Telegram Online/Offline</h2>
         <button type="button" class="icon-btn close" id="btnCloseTgUpDown" aria-label="Tutup" data-i18n-aria="common.close" title="Tutup" data-i18n-title="common.close">
           <svg class="btn-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7"/><path d="M9 9l6 6M15 9l-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
         </button>
       </header>
       <div class="settings-body tg-modal-body">
-        <p class="settings-desc" data-i18n="tg.updown_desc">Kirim pesan saat perangkat berubah status Up (online) atau Down (offline) selama poll.</p>
+        <p class="settings-desc" data-i18n="tg.updown_desc">Kirim pesan saat perangkat berubah status Online atau Offline selama polling.</p>
         <label class="switch-row">
-          <span class="switch-text" data-i18n="tg.notify_up">Notifikasi Up</span>
+          <span class="switch-text" data-i18n="tg.notify_up">Notifikasi Online</span>
           <span class="switch">
             <input type="checkbox" id="tgNotifyUp" role="switch" />
             <span class="slider" aria-hidden="true"></span>
           </span>
         </label>
         <label class="switch-row">
-          <span class="switch-text" data-i18n="tg.notify_down">Notifikasi Down</span>
+          <span class="switch-text" data-i18n="tg.notify_down">Notifikasi Offline</span>
           <span class="switch">
             <input type="checkbox" id="tgNotifyDown" role="switch" />
             <span class="slider" aria-hidden="true"></span>
           </span>
         </label>
-        <label><span data-i18n="tg.tpl_up">Template Up</span>
+        <label><span data-i18n="tg.tpl_up">Template Online</span>
           <textarea id="tgTplUpPreview" rows="2" spellcheck="false"></textarea>
         </label>
-        <label><span data-i18n="tg.tpl_down">Template Down</span>
+        <label><span data-i18n="tg.tpl_down">Template Offline</span>
           <textarea id="tgTplDownPreview" rows="2" spellcheck="false"></textarea>
         </label>
         <p class="settings-desc" data-i18n="tg.placeholders">Placeholder: {label} {ip} {type} {latency} {time} {status}</p>
         <div class="prop-actions scan-modal-actions">
           <button type="button" class="btn ghost" id="btnTgTestUp">
-            <span class="btn-label" data-i18n="tg.test_up">Uji Up</span>
+            <span class="btn-label" data-i18n="tg.test_up">Uji Online</span>
           </button>
           <button type="button" class="btn ghost" id="btnTgTestDown">
-            <span class="btn-label" data-i18n="tg.test_down">Uji Down</span>
+            <span class="btn-label" data-i18n="tg.test_down">Uji Offline</span>
           </button>
           <button type="button" class="btn save" id="btnSaveTgUpDown">
             <span class="btn-label" data-i18n="settings.save">Simpan</span>
@@ -1308,7 +1327,7 @@ $pamantauAuth = pamantau_auth_public_payload();
         </button>
       </header>
       <div class="settings-body tg-modal-body">
-        <p class="settings-desc" data-i18n="tg.shot_desc">Kirim tangkapan topologi (render server GD) ke Telegram sesuai jadwal. Bekerja di background worker.</p>
+        <p class="settings-desc" data-i18n="tg.shot_desc">Background worker merender canvas terbaru lewat Chrome/Edge headless pada setiap jadwal, lalu mengirim hasilnya ke Telegram.</p>
         <label class="switch-row">
           <span class="switch-text" data-i18n="tg.shot_enabled">Aktifkan screenshot terjadwal</span>
           <span class="switch">

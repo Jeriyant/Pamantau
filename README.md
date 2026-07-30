@@ -4,7 +4,7 @@ Monitor topologi jaringan langsung (PHP + vanilla JS).
 
 ## Versi
 
-Sumber versi: `version.json` (saat ini **1.4.0**).
+Sumber versi: `version.json` (saat ini **1.5.0**).
 
 ## Update dari GitHub (seperti FO-Simulator)
 
@@ -15,7 +15,15 @@ Sumber versi: `version.json` (saat ini **1.4.0**).
 
 Server Linux membutuhkan PHP `exec` + `bash` untuk `update.php` / `update.sh`. Folder `database/` dan file topology `*.json` di root **dipertahankan** saat update.
 
-## Topology & monitoring v1.4.0
+## Reports, notification & canvas v1.5.0
+
+- Laporan baru **Port** merangkum perangkat, tipe, IP, dan port terbuka.
+- Laporan **Individu 30 Hari** menampilkan persentase Online/Offline per tanggal
+  untuk satu perangkat.
+- Istilah status Telegram diseragamkan menjadi Online/Offline.
+- Pilihan snap otomatis disembunyikan dan dinonaktifkan saat grid canvas mati.
+- Klik kanan perangkat diprioritaskan terhadap kabel yang bertumpuk.
+- Tampilan awal mobile menyembunyikan kontrol zoom dan bar komponen.
 
 - File Save/Open hanya berisi struktur topologi lokal; counter, statistik, dan
   riwayat polling tetap menjadi data otoritatif di database server.
@@ -31,6 +39,10 @@ Server Linux membutuhkan PHP `exec` + `bash` untuk `update.php` / `update.sh`. F
 - Scan port otomatis memiliki jadwal terpisah setiap 5 menit, timeout 350 ms,
   dan memproses 16–32 perangkat paralel (default 24).
 - Service terakhir tetap tersimpan saat perangkat offline.
+- Screenshot Telegram terjadwal menjalankan Chrome/Edge headless sendiri dan
+  memakai fungsi render canvas yang sama dengan dashboard (tema, grid, ikon,
+  label, koneksi, posisi, dan status). Setiap jadwal mengambil data terbaru;
+  cache lama dan renderer server tidak dipakai sebagai fallback.
 - Worker backend dapat dipanggil setiap 5 detik; setiap job mengatur intervalnya
   sendiri. Untuk cron Linux 30 detik, jalankan sekali pada detik 0 dan sekali
   lagi setelah `sleep 30`.

@@ -1,3 +1,40 @@
+@font-face {
+  font-family: "Sora";
+  src: url("../fonts/Sora-Medium.ttf") format("truetype");
+  font-weight: 400 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Sora";
+  src: url("../fonts/Sora-SemiBold.ttf") format("truetype");
+  font-weight: 600 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Oxanium";
+  src: url("../fonts/Oxanium-Bold.ttf") format("truetype");
+  font-weight: 600 800;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../fonts/JetBrainsMono-Medium.ttf") format("truetype");
+  font-weight: 400 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../fonts/JetBrainsMono-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("../fonts/JetBrainsMono-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-display: swap;
+}
+
 /* Theme tokens — Light (default), Dark, Sand.
    Switch via html[data-theme="…"] (set from settings.theme). */
 :root,
@@ -1341,12 +1378,24 @@ body {
   }
 }
 
-/* Touch / coarse pointer: always fully visible */
+/* Touch / coarse pointer: collapsed initially, explicit tap toggles controls. */
 @media (hover: none), (pointer: coarse) {
-  .stage-dock-toggle {
-    display: none !important;
+  .stage-dock-host:not(.dock-open) .stage-dock-toggle {
+    display: grid;
   }
-  .stage-dock {
+  .stage-dock-host:not(.dock-open) .stage-dock {
+    position: absolute;
+    top: 0;
+    right: 0;
+    opacity: 0;
+    visibility: hidden;
+    pointer-events: none;
+    transform: scale(0.92) translateY(-4px);
+  }
+  .stage-dock-host.dock-open .stage-dock-toggle {
+    display: none;
+  }
+  .stage-dock-host.dock-open .stage-dock {
     opacity: 1;
     visibility: visible;
     pointer-events: auto;
@@ -1900,7 +1949,8 @@ body {
   font: 600 0.78rem var(--font);
   color: var(--ink);
 }
-.report-period-fields input[type="date"] {
+.report-period-fields input[type="date"],
+.report-period-fields select {
   width: 100%;
   min-height: 40px;
   padding: 8px 10px;
@@ -1909,6 +1959,9 @@ body {
   background: var(--surface);
   color: var(--ink);
   font: 500 0.9rem var(--font);
+}
+#reportDeviceField {
+  grid-template-columns: 1fr;
 }
 .report-period-error {
   margin: 0;

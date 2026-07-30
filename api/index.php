@@ -14,6 +14,7 @@ pamantau_auth_ensure_bootstrap();
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
+pamantau_record_runtime_base_url();
 
 function json_out(mixed $data, int $code = 200): never
 {
@@ -135,10 +136,19 @@ $body = json_body();
 if ($action === '' && isset($body['action'])) {
     $action = (string) $body['action'];
 }
+$headlessToken = trim((string) (
+    $_GET['headless_token']
+    ?? $_POST['headless_token']
+    ?? $body['headless_token']
+    ?? ''
+));
+$headlessActions = ['bootstrap', 'complete_headless_snapshot'];
+$headlessAuthorized = in_array($action, $headlessActions, true)
+    && pamantau_headless_token_valid($headlessToken);
 
 // logout is public so a half-dead session can still be cleared without a 401 loop.
 $publicActions = ['login', 'auth_status', 'logout'];
-if (!in_array($action, $publicActions, true)) {
+if (!in_array($action, $publicActions, true) && !$headlessAuthorized) {
     pamantau_auth_require();
 }
 
@@ -266,6 +276,7 @@ try {
                 'stats' => pamantau_read('stats', []),
                 'uptime_seconds' => $uptime['uptime_seconds'],
                 'uptime_human' => $uptime['uptime_human'],
+                'canvas_snapshot_upload_max_bytes' => pamantau_canvas_snapshot_upload_limit_bytes(),
             ]);
         }
 
@@ -750,19 +761,52 @@ try {
             json_out(['ok' => true, 'text' => $res['text'] ?? '']);
         }
 
+        case 'complete_headless_snapshot': {
+            $saved = pamantau_headless_complete_upload(
+                $_FILES['snapshot'] ?? null,
+                $headlessToken
+            );
+            if (empty($saved['ok'])) {
+                json_out([
+                    'ok' => false,
+                    'error' => $saved['error'] ?? 'Render canvas headless gagal disimpan',
+                    'max_bytes' => pamantau_canvas_snapshot_upload_limit_bytes(),
+                ], 422);
+            }
+            json_out([
+                'ok' => true,
+                'filename' => $saved['filename'] ?? '',
+                'width' => $saved['width'] ?? 0,
+                'height' => $saved['height'] ?? 0,
+            ]);
+        }
+
         case 'telegram_test_screenshot': {
+            $saved = pamantau_canvas_snapshot_from_upload($_FILES['snapshot'] ?? null);
+            if (empty($saved['ok'])) {
+                json_out([
+                    'ok' => false,
+                    'error' => $saved['error'] ?? 'Snapshot canvas gagal dibaca',
+                    'max_bytes' => pamantau_canvas_snapshot_upload_limit_bytes(),
+                ], 422);
+            }
             $settings = pamantau_normalize_settings(pamantau_read('settings', []));
             $settings = pamantau_apply_telegram_settings_patch($settings, $body);
             $settings = pamantau_normalize_settings($settings);
-            $res = pamantau_telegram_send_topology_screenshot(
+            $res = pamantau_telegram_send_snapshot_binary(
                 $settings,
+                $saved,
                 false,
                 pamantau_snapshot_telegram_caption($settings, 'test')
             );
             if (!$res['ok']) {
                 json_out(['ok' => false, 'error' => $res['error'] ?? 'Uji screenshot gagal'], 502);
             }
-            json_out(['ok' => true, 'filename' => $res['filename'] ?? '']);
+            json_out([
+                'ok' => true,
+                'filename' => $res['filename'] ?? '',
+                'source' => $res['source'] ?? 'live_canvas',
+            ]);
         }
 
         case 'ping_host': {
@@ -1208,6 +1252,7 @@ try {
         case 'reports': {
             $from = trim((string) ($body['from'] ?? $_GET['from'] ?? ''));
             $to = trim((string) ($body['to'] ?? $_GET['to'] ?? ''));
+            $individualDeviceId = trim((string) ($body['device_id'] ?? $_GET['device_id'] ?? ''));
 
             if ($from === '' || $to === '') {
                 json_out(['ok' => false, 'error' => 'Parameter from dan to (YYYY-MM-DD) wajib diisi'], 422);
@@ -1225,10 +1270,13 @@ try {
                 $statsDaily = [];
             }
             $rows = [];
+            $portRows = [];
             $hasData = false;
+            $devicesById = [];
 
             foreach ($devices as $device) {
                 $id = (string) ($device['id'] ?? '');
+                $devicesById[$id] = $device;
                 $deviceDays = (isset($statsDaily[$id]) && is_array($statsDaily[$id])) ? $statsDaily[$id] : [];
                 $agg = pamantau_aggregate_daily_range($deviceDays, $from, $to);
                 if (!empty($agg['has_data'])) {
@@ -1264,6 +1312,42 @@ try {
                     'latency_min' => $stat['latency_min'] ?? null,
                     'latency_max' => $stat['latency_max'] ?? null,
                 ];
+
+                $ports = array_values(array_unique(array_filter(
+                    array_map('intval', is_array($device['services'] ?? null) ? $device['services'] : []),
+                    static fn(int $port): bool => $port >= 1 && $port <= 65535
+                )));
+                sort($ports);
+                $portRows[] = [
+                    'id' => $id,
+                    'label' => $device['label'] ?? '-',
+                    'type' => $device['type'] ?? '-',
+                    'ip' => $device['ip'] ?? '',
+                    'ports' => $ports,
+                    'port_text' => $ports !== [] ? implode(', ', $ports) : '-',
+                ];
+            }
+
+            $individualDevice = null;
+            $individualDaily = [];
+            $individualHasData = false;
+            $individualTo = date('Y-m-d');
+            $individualFrom = date('Y-m-d', strtotime($individualTo . ' -29 days'));
+            if ($individualDeviceId !== '') {
+                if (!isset($devicesById[$individualDeviceId])) {
+                    json_out(['ok' => false, 'error' => 'Perangkat laporan individu tidak ditemukan'], 422);
+                }
+                $individualDevice = $devicesById[$individualDeviceId];
+                $deviceDays = isset($statsDaily[$individualDeviceId]) && is_array($statsDaily[$individualDeviceId])
+                    ? $statsDaily[$individualDeviceId]
+                    : [];
+                $individualDaily = pamantau_daily_report_rows($deviceDays, $individualFrom, $individualTo);
+                foreach ($individualDaily as $dayRow) {
+                    if (!empty($dayRow['has_data'])) {
+                        $individualHasData = true;
+                        break;
+                    }
+                }
             }
 
             // Sort keys match what each report actually displays now (ONLINE /
@@ -1288,6 +1372,17 @@ try {
                 'most_online' => $mostOnline,
                 'most_offline' => $mostOffline,
                 'best_latency' => $bestLatency,
+                'port_rows' => $portRows,
+                'individual_device' => $individualDevice === null ? null : [
+                    'id' => (string) ($individualDevice['id'] ?? ''),
+                    'label' => (string) ($individualDevice['label'] ?? '-'),
+                    'type' => (string) ($individualDevice['type'] ?? '-'),
+                    'ip' => (string) ($individualDevice['ip'] ?? ''),
+                ],
+                'individual_from' => $individualFrom,
+                'individual_to' => $individualTo,
+                'individual_has_data' => $individualHasData,
+                'individual_daily' => $individualDaily,
             ]);
         }
 

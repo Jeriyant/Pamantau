@@ -1,5 +1,7 @@
 (() => {
   const API = 'api/index.php';
+  const HEADLESS_SNAPSHOT_TOKEN = String(window.PAMANTAU_HEADLESS_SNAPSHOT_TOKEN || '');
+  const HEADLESS_SNAPSHOT_MODE = HEADLESS_SNAPSHOT_TOKEN !== '';
   const TYPES = [
     { type: 'web', label: 'Web', short: 'WEB', desc: 'Situs / webserver', color: '#6366f1', icon: 'assets/img/devices/web.svg' },
     { type: 'internet', label: 'Internet', short: 'NET', desc: 'Gateway / uplink internet', color: '#0ea5e9', icon: 'assets/img/devices/internet.svg' },
@@ -256,8 +258,8 @@
     telegram_chat_id: '',
     telegram_notify_up: true,
     telegram_notify_down: true,
-    telegram_tpl_up: '{label} ({ip}) UP — {latency} ms @ {time}',
-    telegram_tpl_down: '{label} ({ip}) DOWN @ {time}',
+    telegram_tpl_up: '{label} ({ip}) ONLINE — {latency} ms @ {time}',
+    telegram_tpl_down: '{label} ({ip}) OFFLINE @ {time}',
     telegram_screenshot_enabled: false,
     telegram_screenshot_format: 'png',
     telegram_screenshot_schedule_mode: 'interval',
@@ -335,6 +337,7 @@
     reports: null,
     reportFrom: null,
     reportTo: null,
+    reportDeviceId: null,
     reportApplied: false,
     doc: { name: null, handle: null, title: '' },
     docDirty: false,
@@ -415,6 +418,10 @@
     reportTableWrap: document.getElementById('reportTableWrap'),
     reportDateFrom: document.getElementById('reportDateFrom'),
     reportDateTo: document.getElementById('reportDateTo'),
+    reportPeriodDesc: document.getElementById('reportPeriodDesc'),
+    reportDateFields: document.getElementById('reportDateFields'),
+    reportDeviceField: document.getElementById('reportDeviceField'),
+    reportDeviceSelect: document.getElementById('reportDeviceSelect'),
     reportPeriodError: document.getElementById('reportPeriodError'),
     reportPeriodLabel: document.getElementById('reportPeriodLabel'),
     reportEmptyNotice: document.getElementById('reportEmptyNotice'),
@@ -509,6 +516,7 @@
     setShowComment: document.getElementById('setShowComment'),
     setShowServices: document.getElementById('setShowServices'),
     gridSizeExtras: document.getElementById('gridSizeExtras'),
+    snapDragRow: document.getElementById('snapDragRow'),
     setGridSize: document.getElementById('setGridSize'),
     setShowGrid: document.getElementById('setShowGrid'),
     setSnapDrag: document.getElementById('setSnapDrag'),
@@ -1113,10 +1121,17 @@
     const opts = { method, headers: {}, credentials: 'include' };
     if (signal) opts.signal = signal;
     let url = `${API}?action=${encodeURIComponent(action)}`;
+    if (HEADLESS_SNAPSHOT_MODE) {
+      url += `&headless_token=${encodeURIComponent(HEADLESS_SNAPSHOT_TOKEN)}`;
+    }
     if (payload !== null) {
       opts.method = 'POST';
       opts.headers['Content-Type'] = 'application/json';
-      opts.body = JSON.stringify({ action, ...payload });
+      opts.body = JSON.stringify({
+        action,
+        ...payload,
+        ...(HEADLESS_SNAPSHOT_MODE ? { headless_token: HEADLESS_SNAPSHOT_TOKEN } : {}),
+      });
     }
     const res = await fetch(url, opts);
     let data = {};
@@ -1130,7 +1145,40 @@
       throw new Error(data.error || 'Unauthorized');
     }
     if (!res.ok || data.ok === false) {
-      throw new Error(data.error || 'Request gagal');
+      const error = new Error(data.error || 'Request gagal');
+      error.payload = data;
+      throw error;
+    }
+    return data;
+  }
+
+  async function apiMultipart(action, formData, { signal } = {}) {
+    const body = formData instanceof FormData ? formData : new FormData();
+    body.set('action', action);
+    if (HEADLESS_SNAPSHOT_MODE) body.set('headless_token', HEADLESS_SNAPSHOT_TOKEN);
+    const headlessQuery = HEADLESS_SNAPSHOT_MODE
+      ? `&headless_token=${encodeURIComponent(HEADLESS_SNAPSHOT_TOKEN)}`
+      : '';
+    const res = await fetch(`${API}?action=${encodeURIComponent(action)}${headlessQuery}`, {
+      method: 'POST',
+      body,
+      credentials: 'include',
+      signal,
+    });
+    let data = {};
+    try {
+      data = await res.json();
+    } catch (_) {
+      data = {};
+    }
+    if (res.status === 401) {
+      window.location.href = 'login.php';
+      throw new Error(data.error || 'Unauthorized');
+    }
+    if (!res.ok || data.ok === false) {
+      const error = new Error(data.error || 'Request gagal');
+      error.payload = data;
+      throw error;
     }
     return data;
   }
@@ -7148,14 +7196,16 @@
     const zMin = Number(state.settings.zoom_min || 0.45);
     const zMax = Number(state.settings.zoom_max || 2.2);
     state.scale = Math.min(zMax, Math.max(zMin, state.scale));
-    startPolling();
-    startAutomaticPortScanning();
+    if (!HEADLESS_SNAPSHOT_MODE) {
+      startPolling();
+      startAutomaticPortScanning();
+    }
     syncPollToggleUi();
     syncZoomUi();
     syncLockUi();
     syncGridUi();
     draw();
-    syncAnimLoop();
+    if (!HEADLESS_SNAPSHOT_MODE) syncAnimLoop();
   }
 
   function fillSettingsForm() {
@@ -7230,9 +7280,9 @@
     }
     syncLinkAnimControlsUi();
     if (el.setGridSize) el.setGridSize.value = Number(s.grid_size || 24);
+    if (el.setSnapDrag) el.setSnapDrag.checked = !!s.snap_drag;
     if (el.setShowGrid) el.setShowGrid.checked = !!s.show_grid;
     syncGridSettingsUi();
-    if (el.setSnapDrag) el.setSnapDrag.checked = !!s.snap_drag;
     if (el.setTheme) el.setTheme.value = resolveTheme(s.theme);
     if (el.setUiLanguage) el.setUiLanguage.value = normalizeUiLang(s.ui_language);
     if (el.setBackgroundEnabled) el.setBackgroundEnabled.checked = !!s.background_enabled;
@@ -7256,8 +7306,11 @@
   }
 
   function syncGridSettingsUi() {
-    if (!el.gridSizeExtras || !el.setShowGrid) return;
-    el.gridSizeExtras.classList.toggle('hidden', !el.setShowGrid.checked);
+    if (!el.setShowGrid) return;
+    const visible = !!el.setShowGrid.checked;
+    if (el.gridSizeExtras) el.gridSizeExtras.classList.toggle('hidden', !visible);
+    if (el.snapDragRow) el.snapDragRow.classList.toggle('hidden', !visible);
+    if (!visible && el.setSnapDrag) el.setSnapDrag.checked = false;
   }
 
   function syncBackgroundSchedUi() {
@@ -7526,7 +7579,7 @@
       show_services: !!(el.setShowServices && el.setShowServices.checked),
       grid_size: Number(el.setGridSize?.value || 24),
       show_grid: !!(el.setShowGrid && el.setShowGrid.checked),
-      snap_drag: !!(el.setSnapDrag && el.setSnapDrag.checked),
+      snap_drag: !!(el.setShowGrid && el.setShowGrid.checked && el.setSnapDrag && el.setSnapDrag.checked),
       // Layout lock is toggled from the zoom dock padlock only.
       layout_locked: !!state.settings.layout_locked,
       theme: resolveTheme(el.setTheme?.value),
@@ -7682,6 +7735,12 @@
   async function saveTelegramPatch(patch) {
     const data = await api('save_settings', patch);
     applyTelegramSettingsResponse(data.settings || patch);
+    if (
+      Object.prototype.hasOwnProperty.call(patch, 'telegram_screenshot_enabled')
+      || Object.prototype.hasOwnProperty.call(patch, 'telegram_screenshot_format')
+    ) {
+      telegramCanvasLastFingerprint = '';
+    }
     return data;
   }
 
@@ -7773,6 +7832,20 @@
   const COL_LABEL = textCol('label', 'report.col_label', (r) => r.label || '');
   const COL_TYPE = textCol('type', 'report.col_type', (r) => r.type || '');
   const COL_IP = textCol('ip', 'report.col_ip', (r) => r.ip || '');
+  const COL_PORT = textCol('port_text', 'report.col_port', (r) => {
+    if (r.port_text) return r.port_text;
+    const ports = Array.isArray(r.services) ? r.services : [];
+    return ports.length ? ports.map(Number).sort((a, b) => a - b).join(', ') : '-';
+  });
+  const COL_DATE = {
+    key: 'date',
+    labelKey: 'report.col_date',
+    get label() { return t(this.labelKey); },
+    type: 'string',
+    get: (r) => r.date || '',
+    format: (v) => escapeHtml(formatReportDateYmd(v)),
+    excel: (v) => escapeHtml(v || ''),
+  };
   // poll_total = online_samples + offline_samples (the `poll` action
   // records exactly one of the two per completed ping, see
   // pamantau_record_stats / pamantau_poll_total in includes/network.php).
@@ -7787,6 +7860,19 @@
   const COL_MAX_LATENCY = latencyCol('latency_max', 'report.col_max', (r) => (r.latency_max != null ? Number(r.latency_max) : null));
   const COL_ONLINE = pctOfPollCol('online_samples', 'report.col_online', (r) => Number(r.online_samples || 0));
   const COL_OFFLINE = pctOfPollCol('offline_samples', 'report.col_offline', (r) => Number(r.offline_samples || 0));
+  function dailyPctCol(key, labelKey) {
+    return {
+      key,
+      labelKey,
+      get label() { return t(this.labelKey); },
+      type: 'number',
+      get: (r) => (r.has_data ? Number(r[key]) : null),
+      format: (v) => (v == null ? 'â€”' : formatReportPct(v)),
+      excel: (v) => (v == null ? '' : String(roundReportPct(Number(v)))),
+    };
+  }
+  const COL_DAILY_ONLINE = dailyPctCol('online_ratio', 'report.col_online');
+  const COL_DAILY_OFFLINE = dailyPctCol('offline_ratio', 'report.col_offline');
 
   // "Online terbanyak" and "Offline terbanyak" are merged into one
   // sortable Status report — ONLINE/OFFLINE show percent of polls
@@ -7803,6 +7889,24 @@
       get title() { return t(this.titleKey); },
       columns: [COL_LABEL, COL_TYPE, COL_IP, COL_POLLING, COL_MIN_LATENCY, COL_MAX_LATENCY, COL_AVG_LATENCY],
       rows: () => (state.reports && state.reports.best_latency) || [],
+    },
+    ports: {
+      titleKey: 'report.ports_title',
+      get title() { return t(this.titleKey); },
+      requiresPeriod: false,
+      columns: [COL_LABEL, COL_TYPE, COL_IP, COL_PORT],
+      rows: () => (state.reports && state.reports.port_rows) || [],
+    },
+    individual: {
+      titleKey: 'report.individual_title',
+      get title() {
+        const device = state.reports && state.reports.individual_device;
+        return device && device.label
+          ? `${t(this.titleKey)} â€” ${device.label}`
+          : t(this.titleKey);
+      },
+      columns: [COL_DATE, COL_POLLING, COL_DAILY_ONLINE, COL_DAILY_OFFLINE],
+      rows: () => (state.reports && state.reports.individual_daily) || [],
     },
   };
   // Old menu/tab names map straight onto the merged Status report.
@@ -7851,7 +7955,11 @@
   }
 
   async function loadReports(from, to) {
-    const data = await api('reports', { from, to });
+    const payload = { from, to };
+    if (normalizeReportTab(state.reportTab) === 'individual') {
+      payload.device_id = state.reportDeviceId || '';
+    }
+    const data = await api('reports', payload);
     state.reports = data;
     state.reportFrom = data.from || from;
     state.reportTo = data.to || to;
@@ -7872,6 +7980,12 @@
     return { from: ymdLocal(from), to: ymdLocal(now) };
   }
 
+  function individualReportRange() {
+    const to = new Date();
+    const from = new Date(to.getFullYear(), to.getMonth(), to.getDate() - 29);
+    return { from: ymdLocal(from), to: ymdLocal(to) };
+  }
+
   function formatReportDateYmd(ymd) {
     if (!ymd || !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) return ymd || '';
     const [y, m, d] = ymd.split('-').map(Number);
@@ -7883,6 +7997,7 @@
   }
 
   function reportPeriodText(from = state.reportFrom, to = state.reportTo) {
+    if (normalizeReportTab(state.reportTab) === 'ports') return '';
     if (!from || !to) return '';
     return t('report.period_label', {
       from: formatReportDateYmd(from),
@@ -7902,10 +8017,24 @@
   }
 
   function fillReportPeriodInputs(from, to) {
-    const range = defaultReportRange();
+    const range = normalizeReportTab(state.reportTab) === 'individual'
+      ? individualReportRange()
+      : defaultReportRange();
     if (el.reportDateFrom) el.reportDateFrom.value = from || state.reportFrom || range.from;
     if (el.reportDateTo) el.reportDateTo.value = to || state.reportTo || range.to;
     setReportPeriodError('');
+  }
+
+  function populateReportDeviceSelect() {
+    if (!el.reportDeviceSelect) return;
+    const current = state.reportDeviceId || state.selectedId || (state.devices[0] && state.devices[0].id) || '';
+    el.reportDeviceSelect.innerHTML = state.devices.map((device) => (
+      `<option value="${escapeHtml(device.id)}">${escapeHtml(device.label || device.ip || device.id)}</option>`
+    )).join('');
+    if (current && state.devices.some((device) => device.id === current)) {
+      el.reportDeviceSelect.value = current;
+    }
+    state.reportDeviceId = el.reportDeviceSelect.value || '';
   }
 
   function showReportPeriodGate() {
@@ -7917,6 +8046,13 @@
     fillReportPeriodInputs();
     const tab = normalizeReportTab(state.reportTab);
     const def = REPORT_DEFS[tab];
+    const individual = tab === 'individual';
+    if (el.reportDateFields) el.reportDateFields.classList.toggle('hidden', individual);
+    if (el.reportDeviceField) el.reportDeviceField.classList.toggle('hidden', !individual);
+    if (el.reportPeriodDesc) {
+      el.reportPeriodDesc.textContent = t(individual ? 'report.individual_desc' : 'report.period_desc');
+    }
+    if (individual) populateReportDeviceSelect();
     if (el.reportTitle) el.reportTitle.textContent = def.title;
   }
 
@@ -7925,7 +8061,11 @@
     if (el.reportTableWrap) el.reportTableWrap.classList.remove('hidden');
     if (el.btnPrintReport) el.btnPrintReport.classList.remove('hidden');
     if (el.btnExcelReport) el.btnExcelReport.classList.remove('hidden');
-    if (el.btnChangeReportPeriod) el.btnChangeReportPeriod.classList.remove('hidden');
+    if (el.btnChangeReportPeriod) {
+      el.btnChangeReportPeriod.classList.toggle('hidden', normalizeReportTab(state.reportTab) === 'ports');
+      const label = el.btnChangeReportPeriod.querySelector('.btn-label');
+      if (label) label.textContent = t(state.reportTab === 'individual' ? 'report.change_device' : 'report.change_period');
+    }
   }
 
   function renderReportHead(tab = state.reportTab) {
@@ -7933,7 +8073,7 @@
     const tabKey = normalizeReportTab(tab);
     const def = REPORT_DEFS[tabKey];
     const sort = state.reportSort[tabKey] || {};
-    const ths = [`<th class="col-num">#</th>`].concat(def.columns.map((c) => {
+    const ths = [`<th class="col-num">${escapeHtml(t('report.col_no'))}</th>`].concat(def.columns.map((c) => {
       const active = sort.key === c.key;
       const dir = active ? sort.dir : null;
       const arrow = active ? `<span class="sort-arrow" aria-hidden="true">${dir === 'desc' ? '▼' : '▲'}</span>` : '';
@@ -7965,7 +8105,11 @@
       el.reportPeriodLabel.textContent = reportPeriodText();
     }
     if (el.reportEmptyNotice) {
-      const hasData = !!(state.reports && state.reports.has_data);
+      const hasData = tab === 'ports'
+        ? !!(state.reports && state.reports.port_rows && state.reports.port_rows.length)
+        : tab === 'individual'
+          ? !!(state.reports && state.reports.individual_has_data)
+          : !!(state.reports && state.reports.has_data);
       el.reportEmptyNotice.classList.toggle('hidden', hasData || !state.reportApplied);
       el.reportEmptyNotice.textContent = t('report.empty_historical');
     }
@@ -7988,6 +8132,24 @@
 
   function openReportPeriodPicker(tab) {
     state.reportTab = normalizeReportTab(tab || state.reportTab || 'status');
+    if (state.reportTab === 'ports') {
+      state.reports = {
+        has_data: state.devices.length > 0,
+        port_rows: state.devices.map((device) => ({
+          ...device,
+          port_text: Array.isArray(device.services) && device.services.length
+            ? [...device.services].map(Number).sort((a, b) => a - b).join(', ')
+            : '-',
+        })),
+      };
+      state.reportFrom = null;
+      state.reportTo = null;
+      state.reportApplied = true;
+      el.modalReports.classList.remove('hidden');
+      el.modalReports.setAttribute('aria-hidden', 'false');
+      renderReport();
+      return;
+    }
     state.reportApplied = false;
     state.reports = null;
     showReportPeriodGate();
@@ -7997,8 +8159,17 @@
   }
 
   async function applyReportPeriod() {
-    const from = el.reportDateFrom ? String(el.reportDateFrom.value || '').trim() : '';
-    const to = el.reportDateTo ? String(el.reportDateTo.value || '').trim() : '';
+    const individual = normalizeReportTab(state.reportTab) === 'individual';
+    const fixedRange = individual ? individualReportRange() : null;
+    const from = fixedRange ? fixedRange.from : (el.reportDateFrom ? String(el.reportDateFrom.value || '').trim() : '');
+    const to = fixedRange ? fixedRange.to : (el.reportDateTo ? String(el.reportDateTo.value || '').trim() : '');
+    if (individual) {
+      state.reportDeviceId = el.reportDeviceSelect ? String(el.reportDeviceSelect.value || '') : '';
+      if (!state.reportDeviceId) {
+        setReportPeriodError(t('report.device_required'));
+        return;
+      }
+    }
     if (!from || !to) {
       setReportPeriodError(t('report.invalid_dates'));
       return;
@@ -8036,7 +8207,7 @@
         ${def.columns.map((c) => `<td>${c.format(c.get(r))}</td>`).join('')}
       </tr>
     `).join('') || `<tr><td colspan="${def.columns.length + 1}">${t('report.empty')}</td></tr>`;
-    const headCells = ['#', ...def.columns.map((c) => c.label)].map((h) =>
+    const headCells = [t('report.col_no'), ...def.columns.map((c) => c.label)].map((h) =>
       `<th style="text-align:left;border-bottom:1px solid #ccd;padding:8px">${escapeHtml(h)}</th>`
     ).join('');
     const period = reportPeriodText();
@@ -8055,7 +8226,11 @@
   }
 
   async function ensureReportsLoaded() {
-    if (state.reports && state.reportApplied && state.reportFrom && state.reportTo) return;
+    if (
+      state.reports
+      && state.reportApplied
+      && (normalizeReportTab(state.reportTab) === 'ports' || (state.reportFrom && state.reportTo))
+    ) return;
     throw new Error(t('report.invalid_dates'));
   }
 
@@ -8101,7 +8276,7 @@
     // numbers (no "ms" suffix) so Excel treats them as numeric rather
     // than text. Column order stays in sync with REPORT_DEFS[tab].columns
     // automatically since both the head and body iterate the same array.
-    const trHead = ['#', ...def.columns.map((c) => c.label)].map((h) => `<th>${escapeHtml(h)}</th>`).join('');
+    const trHead = [t('report.col_no'), ...def.columns.map((c) => c.label)].map((h) => `<th>${escapeHtml(h)}</th>`).join('');
     const trBody = rows.map((r, i) => `<tr>
       <td>${i + 1}</td>
       ${def.columns.map((c) => `<td>${c.excel(c.get(r))}</td>`).join('')}
@@ -8521,23 +8696,9 @@ ${periodHtml}
     const linkHit = hitConnection(w.x, w.y);
     const hit = hitDevice(w.x, w.y);
 
-    if (linkHit && (!hit || linkHit.end || state.hoverConnId === linkHit.conn.id)) {
-      const additive = e.ctrlKey || e.metaKey;
-      if (additive) {
-        selectConnection(linkHit.conn.id, { toggle: true });
-      } else if (!isConnSelected(linkHit.conn.id)) {
-        selectConnection(linkHit.conn.id);
-      } else {
-        state.selectedConnId = linkHit.conn.id;
-        state.selectedIds.clear();
-        state.selectedId = null;
-        syncInspector();
-        draw();
-      }
-      showLinkCtx(e.clientX, e.clientY, linkHit.conn);
-      return;
-    }
-
+    // A device box always wins over an overlapping cable. This prevents a
+    // stale connection hover/end-point hit from opening the cable menu when
+    // the user clearly right-clicked a component.
     if (hit) {
       if (!isSelected(hit.id)) selectDevice(hit.id);
       else {
@@ -8548,8 +8709,14 @@ ${periodHtml}
         draw();
       }
       showCtx(e.clientX, e.clientY, hit);
-    } else if (linkHit) {
-      if (!isConnSelected(linkHit.conn.id)) selectConnection(linkHit.conn.id);
+      return;
+    }
+
+    if (linkHit) {
+      const additive = e.ctrlKey || e.metaKey;
+      if (additive) {
+        selectConnection(linkHit.conn.id, { toggle: true });
+      } else if (!isConnSelected(linkHit.conn.id)) selectConnection(linkHit.conn.id);
       else {
         state.selectedConnId = linkHit.conn.id;
         state.selectedIds.clear();
@@ -8558,6 +8725,7 @@ ${periodHtml}
         draw();
       }
       showLinkCtx(e.clientX, e.clientY, linkHit.conn);
+      return;
     } else {
       showEmptyCtx(e.clientX, e.clientY, w.x, w.y);
     }
@@ -9335,16 +9503,138 @@ ${periodHtml}
     return { minX, minY, maxX, maxY, w: maxX - minX, h: maxY - minY };
   }
 
-  function renderTopologyCanvas({ pixelRatio = 2, background = '#eef3fb' } = {}) {
+  function colorWithAlpha(color, alpha) {
+    const value = String(color || '').trim();
+    const rgba = value.match(/^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)/i);
+    if (rgba) {
+      return `rgba(${rgba[1]},${rgba[2]},${rgba[3]},${alpha})`;
+    }
+    const hex = value.match(/^#([0-9a-f]{6})$/i);
+    if (hex) {
+      const n = Number.parseInt(hex[1], 16);
+      return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${alpha})`;
+    }
+    return `rgba(255,255,255,${alpha})`;
+  }
+
+  function paintTopologyCanvasBackground(c, w, h, background = null) {
+    if (background) {
+      c.fillStyle = background;
+      c.fillRect(0, 0, w, h);
+      return;
+    }
+
+    const styles = getComputedStyle(document.documentElement);
+    const stage0 = styles.getPropertyValue('--stage-0').trim() || '#f4f6fa';
+    const stage1 = styles.getPropertyValue('--stage-1').trim() || '#e9eef6';
+    const stageGlow = styles.getPropertyValue('--stage-glow').trim() || 'rgba(255,255,255,.98)';
+
+    // Mirrors .stage-wrap: linear-gradient(160deg, stage-0, stage-1)
+    // with the radial stage glow layered above it.
+    const angle = 160 * Math.PI / 180;
+    const dx = Math.sin(angle);
+    const dy = -Math.cos(angle);
+    const half = (Math.abs(dx) * w + Math.abs(dy) * h) / 2;
+    const cx = w / 2;
+    const cy = h / 2;
+    const linear = c.createLinearGradient(
+      cx - dx * half,
+      cy - dy * half,
+      cx + dx * half,
+      cy + dy * half,
+    );
+    linear.addColorStop(0, stage0);
+    linear.addColorStop(1, stage1);
+    c.fillStyle = linear;
+    c.fillRect(0, 0, w, h);
+
+    const gx = w * 0.5;
+    const gy = h * 0.3;
+    const radius = Math.max(
+      Math.hypot(gx, gy),
+      Math.hypot(w - gx, gy),
+      Math.hypot(gx, h - gy),
+      Math.hypot(w - gx, h - gy),
+    );
+    const radial = c.createRadialGradient(gx, gy, 0, gx, gy, radius);
+    radial.addColorStop(0, stageGlow);
+    radial.addColorStop(0.58, colorWithAlpha(stageGlow, 0));
+    radial.addColorStop(1, colorWithAlpha(stageGlow, 0));
+    c.fillStyle = radial;
+    c.fillRect(0, 0, w, h);
+  }
+
+  function drawTopologyCanvasGrid(c, box, pixelRatio) {
+    if (!state.settings.show_grid) return;
+    const g = gridSize();
+    const x0 = Math.floor(box.minX / g) * g;
+    const y0 = Math.floor(box.minY / g) * g;
+    const x1 = Math.ceil(box.maxX / g) * g;
+    const y1 = Math.ceil(box.maxY / g) * g;
+    const snapX = (x, lineWidth) => {
+      const px = (x - box.minX) * pixelRatio;
+      const snapped = lineWidth <= 1 ? Math.round(px) + 0.5 : Math.round(px);
+      return box.minX + snapped / pixelRatio;
+    };
+    const snapY = (y, lineWidth) => {
+      const px = (y - box.minY) * pixelRatio;
+      const snapped = lineWidth <= 1 ? Math.round(px) + 0.5 : Math.round(px);
+      return box.minY + snapped / pixelRatio;
+    };
+
+    c.save();
+    c.lineCap = 'butt';
+    c.beginPath();
+    for (let x = x0, i = Math.round(x0 / g); x <= x1 + 0.001; x += g, i += 1) {
+      if (i % 4 === 0) continue;
+      const sx = snapX(x, 1);
+      c.moveTo(sx, y0);
+      c.lineTo(sx, y1);
+    }
+    for (let y = y0, i = Math.round(y0 / g); y <= y1 + 0.001; y += g, i += 1) {
+      if (i % 4 === 0) continue;
+      const sy = snapY(y, 1);
+      c.moveTo(x0, sy);
+      c.lineTo(x1, sy);
+    }
+    c.strokeStyle = 'rgba(26,106,255,.08)';
+    c.lineWidth = 1;
+    c.stroke();
+
+    c.beginPath();
+    for (let x = x0, i = Math.round(x0 / g); x <= x1 + 0.001; x += g, i += 1) {
+      if (i % 4 !== 0) continue;
+      const sx = snapX(x, 2);
+      c.moveTo(sx, y0);
+      c.lineTo(sx, y1);
+    }
+    for (let y = y0, i = Math.round(y0 / g); y <= y1 + 0.001; y += g, i += 1) {
+      if (i % 4 !== 0) continue;
+      const sy = snapY(y, 2);
+      c.moveTo(x0, sy);
+      c.lineTo(x1, sy);
+    }
+    c.strokeStyle = 'rgba(26,106,255,.16)';
+    c.lineWidth = 2;
+    c.stroke();
+    c.restore();
+  }
+
+  function renderTopologyCanvas({ pixelRatio = 2, background = null } = {}) {
     const box = deviceWorldBounds(48);
+    const renderRatio = Math.min(
+      Math.max(0.01, Number(pixelRatio) || 2),
+      3600 / Math.max(1, box.w),
+      2700 / Math.max(1, box.h),
+    );
     const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.ceil(box.w * pixelRatio));
-    canvas.height = Math.max(1, Math.ceil(box.h * pixelRatio));
+    canvas.width = Math.max(1, Math.min(3600, Math.floor(box.w * renderRatio)));
+    canvas.height = Math.max(1, Math.min(2700, Math.floor(box.h * renderRatio)));
     const c = canvas.getContext('2d');
-    c.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-    c.fillStyle = background;
-    c.fillRect(0, 0, box.w, box.h);
+    c.setTransform(renderRatio, 0, 0, renderRatio, 0, 0);
+    paintTopologyCanvasBackground(c, box.w, box.h, background);
     c.translate(-box.minX, -box.minY);
+    drawTopologyCanvasGrid(c, box, renderRatio);
 
     withDrawContext(c, () => {
       const prevSelected = state.selectedIds;
@@ -9385,6 +9675,170 @@ ${periodHtml}
     });
 
     return canvas;
+  }
+
+  let telegramCanvasLastFingerprint = '';
+  let telegramCanvasUploadLimitBytes = 1536 * 1024;
+
+  function telegramCanvasSnapshotSource(format = null) {
+    const settings = state.settings || {};
+    const devices = state.devices.map((d) => ({
+      id: d.id,
+      type: d.type,
+      label: d.label,
+      ip: d.ip,
+      comment: d.comment,
+      x: d.x,
+      y: d.y,
+      services: d.services,
+      status: d.status,
+      latency: d.latency,
+    }));
+    const source = JSON.stringify({
+      renderer: 2,
+      format: format === 'jpg' ? 'jpg' : 'png',
+      settings: {
+        theme: settings.theme,
+        show_grid: settings.show_grid,
+        grid_size: settings.grid_size,
+        show_link_icon: settings.show_link_icon,
+        show_link_label: settings.show_link_label,
+        show_link_comment: settings.show_link_comment,
+        show_label: settings.show_label,
+        show_ip: settings.show_ip,
+        show_latency: settings.show_latency,
+        show_comment: settings.show_comment,
+        show_services: settings.show_services,
+        status_online_color: settings.status_online_color,
+        status_offline_color: settings.status_offline_color,
+        status_unknown_color: settings.status_unknown_color,
+      },
+      devices,
+      connections: state.connections,
+    });
+    let hash = 2166136261;
+    for (let i = 0; i < source.length; i += 1) {
+      hash ^= source.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    return {
+      source,
+      fingerprint: `canvas-v2-${(hash >>> 0).toString(16).padStart(8, '0')}-${source.length}`,
+    };
+  }
+
+  function canvasToBlob(canvas, mime, quality = undefined) {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error('Canvas tidak dapat diubah menjadi gambar'));
+      }, mime, quality);
+    });
+  }
+
+  function downscaleTopologyCanvas(source, scale) {
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.floor(source.width * scale));
+    canvas.height = Math.max(1, Math.floor(source.height * scale));
+    const c = canvas.getContext('2d');
+    c.imageSmoothingEnabled = true;
+    c.imageSmoothingQuality = 'high';
+    c.drawImage(source, 0, 0, canvas.width, canvas.height);
+    return canvas;
+  }
+
+  async function buildTelegramCanvasSnapshot(format = null) {
+    const requested = format === 'jpg' ? 'jpg' : 'png';
+    let canvas = renderTopologyCanvas({ pixelRatio: 2 });
+    const preferredUploadBytes = Math.min(
+      7 * 1024 * 1024,
+      Math.max(128 * 1024, Number(telegramCanvasUploadLimitBytes) || 1536 * 1024),
+    );
+    let actual = requested;
+    let mime = requested === 'jpg' ? 'image/jpeg' : 'image/png';
+    let blob = await canvasToBlob(canvas, mime, requested === 'jpg' ? 0.92 : undefined);
+
+    // Prefer the selected format, then progressively compress and resize.
+    // Layout/styling remain identical; only output resolution changes when the
+    // active PHP upload_max_filesize requires it.
+    if (blob.size > preferredUploadBytes) {
+      actual = 'jpg';
+      mime = 'image/jpeg';
+      blob = await canvasToBlob(canvas, mime, 0.86);
+    }
+    if (blob.size > preferredUploadBytes) {
+      blob = await canvasToBlob(canvas, 'image/jpeg', 0.74);
+    }
+    if (blob.size > preferredUploadBytes) {
+      blob = await canvasToBlob(canvas, 'image/jpeg', 0.62);
+    }
+
+    for (let attempt = 0; blob.size > preferredUploadBytes && attempt < 4; attempt += 1) {
+      const ratio = Math.max(
+        0.35,
+        Math.min(0.88, Math.sqrt(preferredUploadBytes / blob.size) * 0.9),
+      );
+      const next = downscaleTopologyCanvas(canvas, ratio);
+      if (next.width === canvas.width && next.height === canvas.height) break;
+      canvas = next;
+      blob = await canvasToBlob(canvas, 'image/jpeg', attempt < 2 ? 0.76 : 0.62);
+      actual = 'jpg';
+      mime = 'image/jpeg';
+    }
+
+    if (blob.size > preferredUploadBytes) {
+      throw new Error(
+        `Snapshot canvas masih melebihi batas server (${Math.round(preferredUploadBytes / 1024)} KB)`,
+      );
+    }
+    return { blob, format: actual, mime };
+  }
+
+  async function uploadTelegramCanvasSnapshot({
+    action = 'telegram_test_screenshot',
+    format = null,
+    force = false,
+  } = {}) {
+    const requested = format === null
+      ? (state.settings.telegram_screenshot_format === 'jpg' ? 'jpg' : 'png')
+      : (format === 'jpg' ? 'jpg' : 'png');
+    const source = telegramCanvasSnapshotSource(requested);
+    if (!force && source.fingerprint === telegramCanvasLastFingerprint) {
+      return { ok: true, skipped: 'unchanged' };
+    }
+
+    let image = await buildTelegramCanvasSnapshot(requested);
+    let data = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const form = new FormData();
+      form.set('fingerprint', source.fingerprint);
+      form.set('telegram_screenshot_format', image.format);
+      form.set(
+        'snapshot',
+        image.blob,
+        image.format === 'jpg' ? 'pamantau-topology.jpg' : 'pamantau-topology.png',
+      );
+      try {
+        data = await apiMultipart(action, form);
+        break;
+      } catch (error) {
+        const serverMax = Number(error && error.payload && error.payload.max_bytes);
+        if (
+          attempt === 0
+          && Number.isFinite(serverMax)
+          && serverMax >= 128 * 1024
+          && serverMax < image.blob.size
+        ) {
+          telegramCanvasUploadLimitBytes = serverMax;
+          image = await buildTelegramCanvasSnapshot(requested);
+          continue;
+        }
+        throw error;
+      }
+    }
+    if (!data) throw new Error('Snapshot canvas gagal diunggah');
+    telegramCanvasLastFingerprint = source.fingerprint;
+    return data;
   }
 
   async function applyOpenedTopology(data, meta = {}) {
@@ -9919,7 +10373,7 @@ ${periodHtml}
     el.reportPeriodGate.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
       const tag = (e.target && e.target.tagName) || '';
-      if (tag !== 'INPUT') return;
+      if (tag !== 'INPUT' && tag !== 'SELECT') return;
       e.preventDefault();
       applyReportPeriod().catch((err) => toast(err.message || String(err)));
     });
@@ -10131,8 +10585,10 @@ ${periodHtml}
 
   document.getElementById('btnTgTestShot')?.addEventListener('click', async () => {
     try {
-      await api('telegram_test_screenshot', {
-        telegram_screenshot_format: el.tgShotFormat && el.tgShotFormat.value === 'jpg' ? 'jpg' : 'png',
+      await uploadTelegramCanvasSnapshot({
+        action: 'telegram_test_screenshot',
+        format: el.tgShotFormat && el.tgShotFormat.value === 'jpg' ? 'jpg' : 'png',
+        force: true,
       });
       toast(t('toast.tg_test_ok'));
     } catch (err) {
@@ -10550,6 +11006,10 @@ ${periodHtml}
     return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
   }
 
+  function isMobileInitialUi() {
+    return window.matchMedia('(max-width: 760px), (hover: none), (pointer: coarse)').matches;
+  }
+
   function readPalettePinned() {
     try {
       const pinned = localStorage.getItem(PALETTE_PINNED_KEY);
@@ -10575,8 +11035,9 @@ ${periodHtml}
 
   /** Pinned → overlay open; else desktop starts hamburger-only, touch/coarse starts overlay open. */
   function defaultPaletteVisible() {
+    if (isMobileInitialUi()) return false;
     if (readPalettePinned()) return true;
-    return !isPaletteFinePointer();
+    return false;
   }
 
   function syncPaletteToggleChrome(visible) {
@@ -10771,7 +11232,7 @@ ${periodHtml}
     syncPalettePinChrome(isPinned() && isPaletteOpen());
   })();
 
-  /** Stage dock: icon-collapse on fine pointer; always full on touch/coarse. */
+  /** Stage dock starts collapsed on every device; touch can toggle it explicitly. */
   (function initStageDockAutohide() {
     const host = el.stageDockHost || el.stageDock;
     if (!host || !el.stageDock) return;
@@ -10869,7 +11330,10 @@ ${periodHtml}
 
     if (el.stageDockToggle) {
       el.stageDockToggle.addEventListener('click', () => {
-        if (!isAutohide()) return;
+        if (!isAutohide()) {
+          setOpen(!host.classList.contains('dock-open'));
+          return;
+        }
         openDock(false);
       });
     }
@@ -10919,6 +11383,7 @@ ${periodHtml}
       interacting = false;
       setOpen(false);
     });
+    setOpen(false);
   })();
 
   /** Human uptime with full i18n units, e.g. "9 Jam 24 Menit" / "9 Hours 24 Minutes". */
@@ -10988,6 +11453,10 @@ ${periodHtml}
     syncAuthUi();
     try {
       const data = await api('bootstrap');
+      const serverSnapshotLimit = Number(data.canvas_snapshot_upload_max_bytes);
+      if (Number.isFinite(serverSnapshotLimit) && serverSnapshotLimit >= 128 * 1024) {
+        telegramCanvasUploadLimitBytes = Math.min(9 * 1024 * 1024, serverSnapshotLimit);
+      }
       state.devices = data.devices || [];
       state.connections = normalizeConnections(data.connections);
       applySettings(data.settings || DEFAULT_SETTINGS);
@@ -11000,6 +11469,18 @@ ${periodHtml}
       resize();
       syncZoomUi();
       draw();
+      if (HEADLESS_SNAPSHOT_MODE) {
+        if (document.fonts && document.fonts.ready) {
+          await document.fonts.ready;
+        }
+        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        await uploadTelegramCanvasSnapshot({
+          action: 'complete_headless_snapshot',
+          force: true,
+        });
+        document.title = 'PAMANTAU_HEADLESS_SNAPSHOT_COMPLETE';
+        return;
+      }
       if (!isPollingEnabled()) {
         stopPolling();
       } else {
@@ -11010,10 +11491,14 @@ ${periodHtml}
         zoomToFit();
       });
     } catch (e) {
+      if (HEADLESS_SNAPSHOT_MODE) {
+        document.title = `PAMANTAU_HEADLESS_SNAPSHOT_ERROR: ${e.message}`;
+        return;
+      }
       toast(t('toast.load_fail', { err: e.message }));
       syncAnimLoop();
     }
-    setInterval(refreshServerUptime, 60000);
+    if (!HEADLESS_SNAPSHOT_MODE) setInterval(refreshServerUptime, 60000);
   }
 
   boot();

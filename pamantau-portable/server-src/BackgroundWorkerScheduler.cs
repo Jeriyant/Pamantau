@@ -6,15 +6,20 @@ internal sealed class BackgroundWorkerScheduler : IAsyncDisposable
 {
     private readonly PortablePaths _paths;
     private readonly AppLogger _logger;
+    private readonly Func<string?> _baseUrlProvider;
     private CancellationTokenSource? _cancellation;
     private Task? _loopTask;
     private Process? _activeProcess;
     private bool _backgroundDisabledReported;
 
-    public BackgroundWorkerScheduler(PortablePaths paths, AppLogger logger)
+    public BackgroundWorkerScheduler(
+        PortablePaths paths,
+        AppLogger logger,
+        Func<string?> baseUrlProvider)
     {
         _paths = paths;
         _logger = logger;
+        _baseUrlProvider = baseUrlProvider;
     }
 
     public bool IsRunning => _loopTask is not null;
@@ -83,6 +88,11 @@ internal sealed class BackgroundWorkerScheduler : IAsyncDisposable
     {
         var startInfo = PhpRuntime.CreatePhpStartInfo(_paths, _paths.PhpExe);
         startInfo.ArgumentList.Add(workerScript);
+        var baseUrl = _baseUrlProvider();
+        if (!string.IsNullOrWhiteSpace(baseUrl))
+        {
+            startInfo.Environment["PAMANTAU_BASE_URL"] = baseUrl;
+        }
         startInfo.RedirectStandardOutput = true;
         startInfo.RedirectStandardError = true;
 

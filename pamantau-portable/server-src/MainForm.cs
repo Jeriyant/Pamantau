@@ -69,7 +69,10 @@ internal sealed class MainForm : Form
 
         _logger = new AppLogger(_paths.LogFile);
         _server = new PortableWebServer(_paths, _logger);
-        _backgroundScheduler = new BackgroundWorkerScheduler(_paths, _logger);
+        _backgroundScheduler = new BackgroundWorkerScheduler(
+            _paths,
+            _logger,
+            () => _server.IsRunning ? _server.LocalUrl : null);
 
         InitializeWindow();
         InitializeButtonIcons();
