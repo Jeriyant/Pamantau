@@ -34,7 +34,7 @@ $pamantauAuth = $pamantauHeadlessMode
   <link rel="stylesheet" href="assets/css/update.css?v=<?= (int) @filemtime(__DIR__ . '/assets/css/update.css') ?>" />
 <?php
   $pamantauVersionFile = __DIR__ . '/version.json';
-  $pamantauVersion = '1.5.0';
+  $pamantauVersion = '1.6.0';
   if (is_file($pamantauVersionFile)) {
     $vj = json_decode((string) @file_get_contents($pamantauVersionFile), true);
     if (is_array($vj) && !empty($vj['version'])) {
@@ -53,7 +53,7 @@ $pamantauAuth = $pamantauHeadlessMode
         <div class="brand">
           <img class="brand-logo" src="assets/img/logo.svg" width="44" height="44" alt="Logo Pamantau" />
           <div>
-            <h1>Pamantau <button type="button" class="brand-version" id="appVersionBadge" title="Cek update">v<?= htmlspecialchars($pamantauVersion, ENT_QUOTES, 'UTF-8') ?></button></h1>
+            <h1>Pamantau <button type="button" class="brand-version" id="appVersionBadge" title="Cek update" data-i18n-title="update.check_now">v<?= htmlspecialchars($pamantauVersion, ENT_QUOTES, 'UTF-8') ?></button></h1>
             <p id="docLabel" data-i18n="brand.tagline">Monitor topologi langsung</p>
           </div>
         </div>
@@ -143,7 +143,7 @@ $pamantauAuth = $pamantauHeadlessMode
               </button>
               <button type="button" data-report="individual" role="menuitem">
                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8" r="3" stroke="currentColor" stroke-width="1.7"/><path d="M5.5 19c.8-3.5 3-5.5 6.5-5.5s5.7 2 6.5 5.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
-                <span data-i18n="reports.individual">Individu 30 Hari</span>
+                <span data-i18n="reports.individual">Individu</span>
               </button>
             </div>
           </div>
@@ -222,7 +222,7 @@ $pamantauAuth = $pamantauHeadlessMode
           </button>
           <div class="palette-doc" id="paletteDoc" title="">
             <input type="text" class="palette-doc-name" id="paletteDocName" value="" placeholder="Untitled" data-i18n-placeholder="palette.untitled" maxlength="80" spellcheck="false" autocomplete="off" aria-label="Nama proyek" data-i18n-aria="palette.doc_name" title="Klik untuk edit nama proyek" data-i18n-title="palette.doc_edit" />
-            <span class="palette-doc-status is-unsaved" id="paletteDocStatus">Belum disimpan</span>
+            <span class="palette-doc-status is-unsaved" id="paletteDocStatus" data-i18n="doc.unsaved">Belum disimpan</span>
           </div>
           <button type="button" class="icon-tool palette-pin" id="btnPinPalette" title="Sematkan panel" data-i18n-title="palette.pin" aria-label="Sematkan panel" data-i18n-aria="palette.pin" aria-pressed="false">
             <svg class="ico-pin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 3.5h6l-.75 5.1L17.5 12.2V14.5h-11v-2.3L9.75 8.6 9 3.5z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 14.5V20.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
@@ -362,7 +362,7 @@ $pamantauAuth = $pamantauHeadlessMode
         </button>
       </header>
       <div class="scan-modal-body">
-        <p class="scan-target-info" id="scanSubnetTargetInfo">Target : —</p>
+        <p class="scan-target-info" id="scanSubnetTargetInfo" data-i18n="scan.target">Target: —</p>
         <form id="scanSubnetForm" class="props-form show">
           <div class="settings-grid">
             <label><span data-i18n="scan.network">Alamat network</span>
@@ -382,7 +382,7 @@ $pamantauAuth = $pamantauHeadlessMode
               </select>
             </label>
           </div>
-          <p class="scan-cidr-preview" id="scanCidrPreview">CIDR: —</p>
+          <p class="scan-cidr-preview" id="scanCidrPreview" data-i18n="scan.cidr_preview">CIDR: —</p>
           <div class="scan-modal-actions">
             <button type="submit" class="btn primary">
               <svg class="btn-ico" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 7.2v9.6l8.4-4.8L9 7.2z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>
@@ -505,7 +505,7 @@ $pamantauAuth = $pamantauHeadlessMode
         </button>
       </header>
       <div class="scan-ports-body">
-        <p class="scan-target-info" id="scanPortsTargetInfo">Target: —</p>
+        <p class="scan-target-info" id="scanPortsTargetInfo" data-i18n="scan.target">Target: —</p>
         <label class="scan-ports-range-field"><span data-i18n="scan.port_range">Rentang port</span>
           <input type="text" id="scanPortsRange" value="1-1024" autocomplete="off" spellcheck="false" />
         </label>
@@ -945,7 +945,7 @@ $pamantauAuth = $pamantauHeadlessMode
             </div>
           </div>
 
-          <p id="updateStatusText" class="settings-desc">Belum diperiksa.</p>
+          <p id="updateStatusText" class="settings-desc" data-i18n="update.idle">Belum diperiksa.</p>
           <div id="updateProgressHost"></div>
           <p id="updateSettingsError" class="update-banner-error hidden"></p>
           <div class="update-settings-actions">

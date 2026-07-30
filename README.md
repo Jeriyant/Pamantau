@@ -4,22 +4,32 @@ Monitor topologi jaringan langsung (PHP + vanilla JS).
 
 ## Versi
 
-Sumber versi: `version.json` (saat ini **1.5.0**).
+Sumber versi: `version.json` (saat ini **1.6.0**).
 
 ## Update dari GitHub (seperti FO-Simulator)
 
 1. Bump `version.json`
-2. Commit + tag `vX.Y.Z` + buat GitHub Release
-3. Workflow `.github/workflows/release-dist.yml` mengunggah `pamantau-dist.zip`
-4. Di aplikasi: **Pengaturan → Update → Cek update / Pasang update**
+2. Jalankan `scripts/package-release.ps1`
+3. Commit + tag `vX.Y.Z` + buat GitHub Release
+4. Unggah `pamantau-dist.zip` ke release
+5. Di aplikasi: **Pengaturan → Update → Cek update / Pasang update**
 
 Server Linux membutuhkan PHP `exec` + `bash` untuk `update.php` / `update.sh`. Folder `database/` dan file topology `*.json` di root **dipertahankan** saat update.
+
+## Mobile zoom & language v1.6.0
+
+- Pinch dua jari pada perangkat mobile memperbesar, memperkecil, dan menggeser
+  canvas tanpa menyeret perangkat.
+- Seluruh kunci UI Indonesia dan Inggris disinkronkan, termasuk teks dinamis,
+  laporan, clipboard, scan, polling, dan proses update.
+- Data persentase Online/Offline yang kosong ditampilkan sebagai `-`.
+- Distribusi kini web-only; folder dan paket server portable tidak disertakan.
 
 ## Reports, notification & canvas v1.5.0
 
 - Laporan baru **Port** merangkum perangkat, tipe, IP, dan port terbuka.
-- Laporan **Individu 30 Hari** menampilkan persentase Online/Offline per tanggal
-  untuk satu perangkat.
+- Laporan **Individu** menampilkan persentase Online/Offline per tanggal untuk
+  satu perangkat dan rentang waktu yang dipilih.
 - Istilah status Telegram diseragamkan menjadi Online/Offline.
 - Pilihan snap otomatis disembunyikan dan dinonaktifkan saat grid canvas mati.
 - Klik kanan perangkat diprioritaskan terhadap kabel yang bertumpuk.

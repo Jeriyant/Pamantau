@@ -27,4 +27,9 @@ expect_daily_report($rows[29]['poll_total'] === 10, 'total polling harian harus 
 expect_daily_report($rows[29]['online_ratio'] === 90.0, 'persentase online harus benar');
 expect_daily_report($rows[29]['offline_ratio'] === 10.0, 'persentase offline harus benar');
 
+$shortRows = pamantau_daily_report_rows([], '2026-07-10', '2026-07-12');
+expect_daily_report(count($shortRows) === 3, 'rentang tanggal pilihan harus menentukan jumlah baris');
+expect_daily_report($shortRows[0]['date'] === '2026-07-10', 'awal rentang pilihan harus dipertahankan');
+expect_daily_report($shortRows[2]['date'] === '2026-07-12', 'akhir rentang pilihan harus dipertahankan');
+
 fwrite(STDOUT, "Daily report validation: OK\n");

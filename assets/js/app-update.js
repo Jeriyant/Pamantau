@@ -10,6 +10,8 @@
   const GITHUB_REPO_URL = `https://github.com/${GITHUB_OWNER}/${GITHUB_REPO}`;
   const GITHUB_RELEASES_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/releases/latest`;
   const DISMISS_KEY = 'pamantau-update-dismissed';
+  let settingsStatus = { text: '', key: 'update.idle', vars: null, isError: false };
+  let lastUpdateProgress = null;
 
   function getUpdateApiUrl() {
     return new URL('update.php', window.location.href).href;
@@ -139,7 +141,7 @@
       onProgress({
         stage: 'check',
         percent: 0,
-        message: 'Memulai update…',
+        message: t('update.starting'),
         bytesReceived: 0,
         bytesTotal: 0,
       });
@@ -158,7 +160,7 @@
       if (pollTimer) clearInterval(pollTimer);
       return {
         ok: false,
-        error: 'update.php tidak terjangkau. Pastikan PHP aktif dan file update.php ada di folder app.',
+        error: t('update.backend_unreachable'),
       };
     } finally {
       if (pollTimer) clearInterval(pollTimer);
@@ -172,7 +174,7 @@
     } catch (_) {
       return {
         ok: false,
-        error: `Respons bukan JSON (HTTP ${res.status}). Cek apakah PHP berjalan untuk update.php.`,
+        error: t('update.invalid_response', { status: res.status }),
       };
     }
 
@@ -183,7 +185,7 @@
         : '';
       return {
         ok: false,
-        error: data.error || (`Update gagal (HTTP ${res.status})` + (detailHint ? `: ${detailHint}` : '')),
+        error: data.error || (t('update.failed_http', { status: res.status }) + (detailHint ? `: ${detailHint}` : '')),
         detail: data.detail,
       };
     }
@@ -208,6 +210,25 @@
     return normalizeVersion(global.PAMANTAU_VERSION || '0.0.0');
   }
 
+  function currentLanguage() {
+    const i18n = global.PamantauI18n || global.I18N;
+    return i18n && typeof i18n.getLang === 'function' ? i18n.getLang() : 'id';
+  }
+
+  function localizedProgressMessage(progress) {
+    const stage = String((progress && progress.stage) || '').toLowerCase();
+    const keyByStage = {
+      check: 'update.progress_check',
+      download: 'update.progress_download',
+      extract: 'update.progress_extract',
+      install: 'update.progress_install',
+      done: 'update.progress_done',
+    };
+    if (currentLanguage() === 'en' && keyByStage[stage]) return t(keyByStage[stage]);
+    return String((progress && progress.message) || '').trim()
+      || t(keyByStage[stage] || 'update.applying');
+  }
+
   function isDismissed(tag) {
     try {
       return localStorage.getItem(DISMISS_KEY) === tag;
@@ -224,6 +245,7 @@
 
   function renderProgress(host, progress) {
     if (!host) return;
+    lastUpdateProgress = progress || null;
     const pct = Math.max(0, Math.min(100, Math.round((progress && progress.percent) || 0)));
     host.innerHTML = `
       <div class="update-progress">
@@ -236,7 +258,7 @@
         </div>
       </div>`;
     const msg = host.querySelector('.update-progress-msg');
-    if (msg) msg.textContent = (progress && progress.message) || '…';
+    if (msg) msg.textContent = localizedProgressMessage(progress);
   }
 
   function setBtnText(btn, text) {
@@ -311,12 +333,30 @@
     }
   }
 
-  function setSettingsStatus(text, isError) {
+  function paintSettingsStatus(text, isError) {
     const el = document.getElementById('updateStatusText');
     if (!el) return;
     el.removeAttribute('data-i18n');
     el.textContent = text;
     el.classList.toggle('is-error', !!isError);
+  }
+
+  function setSettingsStatus(text, isError, key, vars) {
+    settingsStatus = {
+      text: String(text || ''),
+      key: key || '',
+      vars: vars || null,
+      isError: !!isError,
+    };
+    if (key) lastUpdateProgress = null;
+    paintSettingsStatus(settingsStatus.text, settingsStatus.isError);
+  }
+
+  function refreshSettingsStatusLanguage() {
+    const text = settingsStatus.key
+      ? t(settingsStatus.key, settingsStatus.vars)
+      : (lastUpdateProgress ? localizedProgressMessage(lastUpdateProgress) : settingsStatus.text);
+    paintSettingsStatus(text, settingsStatus.isError);
   }
 
   function init() {
@@ -338,7 +378,7 @@
         const btnCheck = document.getElementById('btnUpdateCheck');
         const btnInstall = document.getElementById('btnUpdateInstall');
         if (btnCheck) btnCheck.disabled = true;
-        if (!silent) setSettingsStatus(t('update.checking'), false);
+        if (!silent) setSettingsStatus(t('update.checking'), false, 'update.checking');
         try {
           const release = await fetchLatestRelease(abort.signal);
           latest = release;
@@ -361,12 +401,17 @@
             }
           }
           if (!newer) {
-            setSettingsStatus(t('update.up_to_date'), false);
+            setSettingsStatus(t('update.up_to_date'), false, 'update.up_to_date');
             const banner = document.getElementById('updateBanner');
             if (banner) banner.classList.add('hidden');
             return release;
           }
-          setSettingsStatus(t('update.available', { version: release.version }), false);
+          setSettingsStatus(
+            t('update.available', { version: release.version }),
+            false,
+            'update.available',
+            { version: release.version },
+          );
           if (!isDismissed(release.tag)) showBanner(release, api);
           return release;
         } catch (err) {
@@ -377,7 +422,7 @@
             btnInstall.classList.add('hidden');
             btnInstall.disabled = true;
           }
-          setSettingsStatus(t('update.check_failed'), true);
+          setSettingsStatus(t('update.check_failed'), true, 'update.check_failed');
           if (!silent) console.warn('[Pamantau update]', err);
           return null;
         } finally {
@@ -389,7 +434,7 @@
         const target = release || latest;
         if (!target) return;
         if (!target.downloadUrl) {
-          setSettingsStatus(t('update.no_asset'), true);
+          setSettingsStatus(t('update.no_asset'), true, 'update.no_asset');
           return;
         }
         applying = true;
@@ -407,7 +452,7 @@
             if (hosts && hosts.progressHost) renderProgress(hosts.progressHost, progress);
             const settingsProgress = document.getElementById('updateProgressHost');
             if (settingsProgress) renderProgress(settingsProgress, progress);
-            setSettingsStatus(progress.message || t('update.applying'), false);
+            setSettingsStatus(localizedProgressMessage(progress), false);
           });
           if (!result.ok) {
             const err = result.error || t('update.check_failed');
@@ -458,7 +503,28 @@
       badge.title = t('update.check_now');
     }
 
-    setSettingsStatus(t('update.idle'), false);
+    api.refreshLanguage = () => {
+      if (badge) badge.title = t('update.check_now');
+      refreshSettingsStatusLanguage();
+      if (lastUpdateProgress) {
+        document.querySelectorAll('.update-progress-msg').forEach((node) => {
+          node.textContent = localizedProgressMessage(lastUpdateProgress);
+        });
+      }
+      if (latest) {
+        const newer = compareSemver(latest.version, current) > 0;
+        const latValEl = document.getElementById('updateLatestVersionVal');
+        if (latValEl) {
+          const badgeKey = newer ? 'update.available_badge' : 'update.up_to_date_badge';
+          const badgeClass = newer ? 'newer' : 'ok';
+          latValEl.innerHTML = `v${latest.version} <span class="version-tag ${badgeClass}">${t(badgeKey)}</span>`;
+        }
+        const banner = document.getElementById('updateBanner');
+        if (banner && !banner.classList.contains('hidden')) showBanner(latest, api);
+      }
+    };
+
+    setSettingsStatus(t('update.idle'), false, 'update.idle');
     // Auto-check shortly after load (non-blocking).
     setTimeout(() => { void api.check({ silent: true }); }, 1200);
 

@@ -102,6 +102,9 @@
       document.documentElement.lang = next;
     }
     refreshI18nDynamic();
+    if (window.PamantauUpdate && typeof window.PamantauUpdate.refreshLanguage === 'function') {
+      window.PamantauUpdate.refreshLanguage();
+    }
     return next;
   }
   function typeLabel(type) {
@@ -128,6 +131,7 @@
     try { populateDeviceTypeCtxMenu(); } catch (_) {}
     try { populateLinkTypeSelect(); } catch (_) {}
     try { populateLinkTypeCtxMenu(); } catch (_) {}
+    try { syncPasteMenuState(); } catch (_) {}
     try { if (typeof syncInspector === 'function') syncInspector(); } catch (_) {}
     try {
       if (el.modalReports && !el.modalReports.classList.contains('hidden') && typeof renderReport === 'function') {
@@ -1563,12 +1567,12 @@
     if (el.ctxUndoBtn) {
       el.ctxUndoBtn.disabled = !undoOk;
       el.ctxUndoBtn.classList.toggle('disabled', !undoOk);
-      el.ctxUndoBtn.title = undoOk ? 'Undo (Ctrl+Z)' : 'Tidak ada yang bisa di-undo';
+      el.ctxUndoBtn.title = t(undoOk ? 'nav.undo_title' : 'nav.undo_empty');
     }
     if (el.ctxRedoBtn) {
       el.ctxRedoBtn.disabled = !redoOk;
       el.ctxRedoBtn.classList.toggle('disabled', !redoOk);
-      el.ctxRedoBtn.title = redoOk ? 'Redo (Ctrl+Y)' : 'Tidak ada yang bisa di-redo';
+      el.ctxRedoBtn.title = t(redoOk ? 'nav.redo_title' : 'nav.redo_empty');
     }
   }
 
@@ -1626,8 +1630,8 @@
     await restoreTopology(history.stack[history.index], 'Redo');
   }
 
-  function busy(on, text = 'Memproses…', progress = null) {
-    el.busyText.textContent = text;
+  function busy(on, text = null, progress = null) {
+    el.busyText.textContent = text || t('busy.default');
     el.busy.classList.toggle('hidden', !on);
     if (!on) {
       el.busyProgressWrap.classList.add('hidden');
@@ -4970,7 +4974,7 @@
     const ok = hasDeviceClipboard();
     el.ctxPasteBtn.classList.toggle('hidden', !ok);
     el.ctxPasteBtn.disabled = !ok;
-    el.ctxPasteBtn.title = ok ? 'Tempel perangkat dari clipboard' : 'Clipboard kosong — salin perangkat dulu';
+    el.ctxPasteBtn.title = t(ok ? 'ctx.paste_ready_title' : 'ctx.paste_empty_title');
     el.ctxPasteBtn.classList.toggle('disabled', !ok);
   }
 
@@ -5024,7 +5028,7 @@
         }));
       }
     } catch (_) { /* ignore system clipboard failures */ }
-    toast(devices.length === 1 ? 'Perangkat disalin' : `${devices.length} perangkat disalin`);
+    toast(t('toast.devices_copied', { n: devices.length }));
     return true;
   }
 
@@ -5129,9 +5133,9 @@
       setSelection(newDevices.map((d) => d.id));
       syncInspector();
       draw();
-      toast(newDevices.length === 1 ? 'Perangkat ditempel' : `${newDevices.length} perangkat ditempel`);
+      toast(t('toast.devices_pasted', { n: newDevices.length }));
     } catch (e) {
-      toast(e.message || 'Gagal tempel');
+      toast(e.message || t('toast.paste_fail'));
     }
   }
 
@@ -5205,7 +5209,7 @@
       pushHistory();
       syncInspector();
       draw();
-      toast(ids.length > 1 ? `${ids.length} tali → ${label}` : `Tipe tali: ${label}`);
+      toast(t('toast.link_type_changed', { n: ids.length, label }));
     } catch (e) {
       toast(e.message);
     }
@@ -5356,8 +5360,8 @@
     let total = 0;
     let partialResults = null;
     try {
-      busy(true, 'Menyiapkan scan subnet…', {
-        total: 1, done: 0, found: 0, detail: 'Menghitung target IP…',
+      busy(true, t('busy.scan_subnet_prepare'), {
+        total: 1, done: 0, found: 0, detail: t('busy.scan_subnet_targets'),
       });
 
       const plan = await api('scan_subnet_prepare', { id, cidr }, { signal });
@@ -5371,10 +5375,10 @@
       }
 
       const methodHint = subnetMethod === 'parallel'
-        ? `paralel · batch ${BATCH}`
-        : 'satu per satu';
+        ? t('scan.method_parallel_batch', { n: BATCH })
+        : t('scan.method_sequential');
       busy(true, `Scan ${planCidr}`, {
-        total, done: 0, found: 0, detail: `Mulai ping (${methodHint})…`,
+        total, done: 0, found: 0, detail: t('busy.scan_subnet_start', { method: methodHint }),
       });
 
       let done = 0;
@@ -5408,7 +5412,7 @@
           total,
           done,
           found: foundHosts.length,
-          detail: `Selesai cek ${current}`,
+          detail: t('busy.scan_subnet_done', { target: current }),
         });
       }
 
@@ -6072,7 +6076,7 @@
         </td>
         ${scanResultPortsCellHtml(r)}
       </tr>
-    `).join('') || `<tr><td colspan="7">Tidak ada host yang membalas.</td></tr>`;
+    `).join('') || `<tr><td colspan="7">${escapeHtml(t('scan.no_reply'))}</td></tr>`;
     updateScanResultsSummary();
   }
 
@@ -6086,11 +6090,11 @@
     }
 
     const signal = beginBusyAbort();
-    busy(true, 'Membangun topologi…', {
+    busy(true, t('busy.build_topology'), {
       total: selected.length,
       done: selected.length,
       found: selected.length,
-      detail: `Membuat node & konektor (${selected.length} host)…`,
+      detail: t('busy.build_topology_detail', { n: selected.length }),
     });
     try {
       const hosts = selected.map((r) => ({
@@ -6154,7 +6158,7 @@
     const from = Number(m[1]);
     const to = Number(m[2]);
     if (!Number.isFinite(from) || !Number.isFinite(to) || from < 1 || to > 65535 || from > to) {
-      return { ok: false, error: 'Rentang port tidak valid (1–65535, mulai ≤ akhir).' };
+      return { ok: false, error: t('scan.port_range_invalid') };
     }
     const count = to - from + 1;
     const maxSpan = scanPortMaxFromSettings();
@@ -7148,7 +7152,7 @@
     try {
       const data = await api('save_settings', { ...state.settings, polling_enabled: next });
       applySettings(data.settings || { ...state.settings, polling_enabled: next });
-      toast(next ? 'Polling otomatis diaktifkan' : 'Polling otomatis dimatikan');
+      toast(t(next ? 'toast.polling_on' : 'toast.polling_off'));
     } catch (e) {
       state.settings = { ...state.settings, polling_enabled: prevEnabled };
       syncPollToggleUi();
@@ -7867,7 +7871,7 @@
       get label() { return t(this.labelKey); },
       type: 'number',
       get: (r) => (r.has_data ? Number(r[key]) : null),
-      format: (v) => (v == null ? 'â€”' : formatReportPct(v)),
+      format: (v) => (v == null ? '-' : formatReportPct(v)),
       excel: (v) => (v == null ? '' : String(roundReportPct(Number(v)))),
     };
   }
@@ -7902,7 +7906,7 @@
       get title() {
         const device = state.reports && state.reports.individual_device;
         return device && device.label
-          ? `${t(this.titleKey)} â€” ${device.label}`
+          ? `${t(this.titleKey)} - ${device.label}`
           : t(this.titleKey);
       },
       columns: [COL_DATE, COL_POLLING, COL_DAILY_ONLINE, COL_DAILY_OFFLINE],
@@ -8047,7 +8051,7 @@
     const tab = normalizeReportTab(state.reportTab);
     const def = REPORT_DEFS[tab];
     const individual = tab === 'individual';
-    if (el.reportDateFields) el.reportDateFields.classList.toggle('hidden', individual);
+    if (el.reportDateFields) el.reportDateFields.classList.remove('hidden');
     if (el.reportDeviceField) el.reportDeviceField.classList.toggle('hidden', !individual);
     if (el.reportPeriodDesc) {
       el.reportPeriodDesc.textContent = t(individual ? 'report.individual_desc' : 'report.period_desc');
@@ -8064,7 +8068,7 @@
     if (el.btnChangeReportPeriod) {
       el.btnChangeReportPeriod.classList.toggle('hidden', normalizeReportTab(state.reportTab) === 'ports');
       const label = el.btnChangeReportPeriod.querySelector('.btn-label');
-      if (label) label.textContent = t(state.reportTab === 'individual' ? 'report.change_device' : 'report.change_period');
+      if (label) label.textContent = t(state.reportTab === 'individual' ? 'report.change_filter' : 'report.change_period');
     }
   }
 
@@ -8160,9 +8164,8 @@
 
   async function applyReportPeriod() {
     const individual = normalizeReportTab(state.reportTab) === 'individual';
-    const fixedRange = individual ? individualReportRange() : null;
-    const from = fixedRange ? fixedRange.from : (el.reportDateFrom ? String(el.reportDateFrom.value || '').trim() : '');
-    const to = fixedRange ? fixedRange.to : (el.reportDateTo ? String(el.reportDateTo.value || '').trim() : '');
+    const from = el.reportDateFrom ? String(el.reportDateFrom.value || '').trim() : '';
+    const to = el.reportDateTo ? String(el.reportDateTo.value || '').trim() : '';
     if (individual) {
       state.reportDeviceId = el.reportDeviceSelect ? String(el.reportDeviceSelect.value || '') : '';
       if (!state.reportDeviceId) {
@@ -8315,6 +8318,52 @@ ${periodHtml}
   }
 
   // Events
+  const stageTouchPoints = new Map();
+  let stagePinch = null;
+
+  function stageTouchPair() {
+    return [...stageTouchPoints.values()].slice(0, 2);
+  }
+
+  function cancelStageInteractionForPinch() {
+    clearLongPress();
+    // A first finger may briefly start dragging a device before the second
+    // finger lands. Restore its origin so pinch never moves topology items.
+    if (state.dragging && state.dragOrigins) {
+      for (const [id, origin] of Object.entries(state.dragOrigins)) {
+        const device = findDevice(id);
+        if (device) {
+          device.x = origin.x;
+          device.y = origin.y;
+        }
+      }
+    }
+    state.panning = false;
+    state.panStart = null;
+    state.dragging = null;
+    state.dragOrigins = null;
+    state.marquee = null;
+    state.linking = false;
+    state.connectFrom = null;
+    state.rewiring = null;
+    el.stage.classList.remove('connect-mode');
+    el.stage.style.cursor = 'default';
+  }
+
+  function beginStagePinch() {
+    const [a, b] = stageTouchPair();
+    if (!a || !b) return false;
+    cancelStageInteractionForPinch();
+    const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    stagePinch = {
+      distance: Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)),
+      scale: state.scale,
+      anchor: screenToWorld(midpoint.x, midpoint.y),
+    };
+    draw();
+    return true;
+  }
+
   el.stage.addEventListener('dragover', (e) => e.preventDefault());
   el.stage.addEventListener('drop', async (e) => {
     e.preventDefault();
@@ -8331,6 +8380,17 @@ ${periodHtml}
 
   el.stage.addEventListener('pointerdown', (e) => {
     hideCtx();
+    if (e.pointerType === 'touch') {
+      e.preventDefault();
+      const point = getPointer(e);
+      stageTouchPoints.set(e.pointerId, {
+        ...point,
+        clientX: e.clientX,
+        clientY: e.clientY,
+      });
+      try { el.stage.setPointerCapture(e.pointerId); } catch (_) { /* ignore */ }
+      if (stageTouchPoints.size >= 2 && beginStagePinch()) return;
+    }
     // Blur palette/doc inputs so Ctrl+arrow Rapikan shortcuts are not swallowed
     // by isEditableTarget / stopPropagation on focused fields.
     const active = document.activeElement;
@@ -8469,6 +8529,32 @@ ${periodHtml}
   });
 
   el.stage.addEventListener('pointermove', (e) => {
+    if (e.pointerType === 'touch' && stageTouchPoints.has(e.pointerId)) {
+      e.preventDefault();
+      const point = getPointer(e);
+      stageTouchPoints.set(e.pointerId, {
+        ...point,
+        clientX: e.clientX,
+        clientY: e.clientY,
+      });
+      if (stagePinch && stageTouchPoints.size >= 2) {
+        const [a, b] = stageTouchPair();
+        const distance = Math.max(1, Math.hypot(b.x - a.x, b.y - a.y));
+        const midpoint = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        const { min, max } = zoomBounds();
+        state.scale = Math.min(max, Math.max(
+          min,
+          stagePinch.scale * (distance / stagePinch.distance),
+        ));
+        // Keep the world point between both fingers fixed while also allowing
+        // the midpoint to move, giving natural pinch-zoom plus two-finger pan.
+        state.pan.x = midpoint.x - stagePinch.anchor.x * state.scale;
+        state.pan.y = midpoint.y - stagePinch.anchor.y * state.scale;
+        syncZoomUi();
+        scheduleDraw();
+        return;
+      }
+    }
     const p = getPointer(e);
     state._mouseWorld = screenToWorld(p.x, p.y);
 
@@ -8534,6 +8620,26 @@ ${periodHtml}
 
   el.stage.addEventListener('pointerup', async (e) => {
     clearLongPress();
+    if (e.pointerType === 'touch') {
+      const wasPinching = !!stagePinch;
+      stageTouchPoints.delete(e.pointerId);
+      if (wasPinching) {
+        stagePinch = null;
+        state.panning = false;
+        state.panStart = null;
+        // Continue as a normal one-finger pan if one finger remains down.
+        const remaining = [...stageTouchPoints.values()][0];
+        if (remaining && !isLayoutLocked()) {
+          state.panning = true;
+          state.panStart = {
+            x: remaining.clientX - state.pan.x,
+            y: remaining.clientY - state.pan.y,
+          };
+          el.stage.style.cursor = 'grabbing';
+        }
+        return;
+      }
+    }
     if (state.panning) {
       state.panning = false;
       state.panStart = null;
@@ -8649,8 +8755,10 @@ ${periodHtml}
     }
   });
 
-  el.stage.addEventListener('pointercancel', () => {
+  el.stage.addEventListener('pointercancel', (e) => {
     clearLongPress();
+    if (e.pointerType === 'touch') stageTouchPoints.delete(e.pointerId);
+    stagePinch = null;
     state.panning = false;
     state.panStart = null;
     state.dragging = null;
@@ -10742,7 +10850,7 @@ ${periodHtml}
         await captureTerminalToClipboard(el.pingTerminal);
         toast(t('toast.copied'));
       } catch (e) {
-        toast(e && e.message ? e.message : 'Gagal menyalin gambar');
+        toast(e && e.message ? e.message : t('toast.copy_image_fail'));
       }
     });
   }
@@ -10764,7 +10872,7 @@ ${periodHtml}
         await captureTerminalToClipboard(el.tracerouteTerminal);
         toast(t('toast.copied'));
       } catch (e) {
-        toast(e && e.message ? e.message : 'Gagal menyalin gambar');
+        toast(e && e.message ? e.message : t('toast.copy_image_fail'));
       }
     });
   }
@@ -11293,6 +11401,7 @@ ${periodHtml}
     }
 
     function flashDock() {
+      if (!isAutohide()) return;
       openDock(FLASH_MS);
     }
 
@@ -11322,7 +11431,12 @@ ${periodHtml}
       if (!isAutohide()) return;
       scheduleHide(HIDE_MS);
     });
-    host.addEventListener('focusin', () => openDock(4000));
+    host.addEventListener('focusin', () => {
+      // Moving focus to a touch control must not hide it before its click
+      // fires. Focus-driven reveal/autohide only applies to fine pointers.
+      if (!isAutohide()) return;
+      openDock(4000);
+    });
     host.addEventListener('focusout', () => {
       if (!isAutohide()) return;
       scheduleHide(HIDE_MS);
@@ -11335,6 +11449,13 @@ ${periodHtml}
           return;
         }
         openDock(false);
+      });
+    }
+
+    if (el.stage) {
+      el.stage.addEventListener('pointerdown', (e) => {
+        if (isAutohide() || e.pointerType !== 'touch') return;
+        setOpen(false);
       });
     }
 

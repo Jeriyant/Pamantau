@@ -1331,8 +1331,8 @@ try {
             $individualDevice = null;
             $individualDaily = [];
             $individualHasData = false;
-            $individualTo = date('Y-m-d');
-            $individualFrom = date('Y-m-d', strtotime($individualTo . ' -29 days'));
+            $individualFrom = $from;
+            $individualTo = $to;
             if ($individualDeviceId !== '') {
                 if (!isset($devicesById[$individualDeviceId])) {
                     json_out(['ok' => false, 'error' => 'Perangkat laporan individu tidak ditemukan'], 422);
