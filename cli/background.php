@@ -4,20 +4,20 @@ declare(strict_types=1);
 /**
  * Pamantau background worker — one poll cycle (+ optional Telegram screenshot).
  *
- * Respects settings.telegram_screenshot_enabled (via background_enabled mirror).
+ * Respects settings.background_enabled (no-op when OFF).
  * Ping and common-port discovery use independent last-run timestamps and
  * intervals. The worker may be invoked frequently; each job self-paces.
  * Screenshot-due checks still run when poll is skipped.
  * Uses an exclusive flock so overlapping scheduler runs do not parallelize.
  *
- * ── Linux cron (Debian/Ubuntu) ─────────────────────────────────────────
+ * ── Linux cron ─────────────────────────────────────────────────────────
  *   The worker self-paces both jobs. To honor a 30-second ping interval with
  *   cron, invoke it at second 0 and second 30:
  *   * * * * * /usr/bin/php /path/to/Pamantau/cli/background.php >/dev/null 2>&1
  *   * * * * * sleep 30; /usr/bin/php /path/to/Pamantau/cli/background.php >/dev/null 2>&1
  *
- * Note: Enabling "Aktifkan screenshot terjadwal" allows this worker to run;
- * root cron still needs to invoke this script (installed automatically on Save).
+ * Note: Turning Background ON in app settings only allows this worker to run;
+ * you still need cron to invoke this script.
  */
 
 if (PHP_SAPI !== 'cli') {
@@ -49,10 +49,10 @@ if (!flock($lockFp, LOCK_EX | LOCK_NB)) {
 
 try {
     $settings = pamantau_normalize_settings(pamantau_read('settings', []));
-    if (empty($settings['telegram_screenshot_enabled'])) {
+    if (empty($settings['background_enabled'])) {
         fwrite(STDOUT, json_encode([
             'ok' => true,
-            'skipped' => 'screenshot_disabled',
+            'skipped' => 'background_disabled',
         ], JSON_UNESCAPED_UNICODE) . "\n");
         exit(0);
     }

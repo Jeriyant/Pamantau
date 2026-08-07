@@ -273,7 +273,7 @@
     telegram_screenshot_last_at: '',
   };
 
-  const THEME_KEYS = ['light', 'dark'];
+  const THEME_KEYS = ['light', 'dark', 'sand'];
 
   const state = {
     devices: [],
@@ -395,15 +395,14 @@
     modalTgUpDown: document.getElementById('modalTgUpDown'),
     modalTgScreenshot: document.getElementById('modalTgScreenshot'),
     modalTgSettings: document.getElementById('modalTgSettings'),
-    bgSchedHint: document.getElementById('tgShotSchedHint'),
-    tgShotCronStatus: document.getElementById('tgShotCronStatus'),
-    tgShotDepsList: document.getElementById('tgShotDepsList'),
+    setBackgroundEnabled: document.getElementById('setBackgroundEnabled'),
+    bgSchedHint: document.getElementById('bgSchedHint'),
+    bgCronHint: document.getElementById('bgCronHint'),
+    btnCopyBgCron: document.getElementById('btnCopyBgCron'),
     tgNotifyUp: document.getElementById('tgNotifyUp'),
     tgNotifyDown: document.getElementById('tgNotifyDown'),
     tgTplUpPreview: document.getElementById('tgTplUpPreview'),
     tgTplDownPreview: document.getElementById('tgTplDownPreview'),
-    tgMsgPreviewUp: document.getElementById('tgMsgPreviewUp'),
-    tgMsgPreviewDown: document.getElementById('tgMsgPreviewDown'),
     tgShotEnabled: document.getElementById('tgShotEnabled'),
     tgShotFormat: document.getElementById('tgShotFormat'),
     tgShotMode: document.getElementById('tgShotMode'),
@@ -558,13 +557,6 @@
     btnSaveAccount: document.getElementById('btnSaveAccount'),
     btnResetAccount: document.getElementById('btnResetAccount'),
     accountSection: document.getElementById('accountSection'),
-    accountRecovery: document.getElementById('accountRecovery'),
-    accountRecoveryKey: document.getElementById('accountRecoveryKey'),
-    accountRecoveryPath: document.getElementById('accountRecoveryPath'),
-    accountRecoveryStatus: document.getElementById('accountRecoveryStatus'),
-    btnRevealRecoveryKey: document.getElementById('btnRevealRecoveryKey'),
-    btnCopyRecoveryKey: document.getElementById('btnCopyRecoveryKey'),
-    btnRotateRecoveryKey: document.getElementById('btnRotateRecoveryKey'),
     btnReports: document.getElementById('btnReports'),
     ctxOpenWrap: document.getElementById('ctxOpenWrap'),
     ctxOpenTrigger: document.getElementById('ctxOpenTrigger'),
@@ -647,6 +639,7 @@
   // Theme → device skin. Changing theme swaps canvas device visuals.
   // Dark uses the same card chrome as Light (status tile + capsule + pills).
   const DEVICE_SKINS = {
+    sand: 'orbital',
     light: 'card',
     dark: 'card',
   };
@@ -879,8 +872,8 @@
     const lineStep = compact ? 15 : 16;
     const metaPillGap = compact ? 3 : 4;
     const labelStep = compact ? 24 : 26;
-    const labelPadX = compact ? 8 : 10;
-    const labelPadY = compact ? 6 : 7;
+    const labelPadX = compact ? 9 : 11;
+    const labelPadY = compact ? 7 : 8;
     const hasLabel = lines.some((l) => l.kind === 'label');
     const labelBoxH = hasLabel ? labelStep + labelPadY : 0;
     const otherLines = lines.filter((l) => l.kind !== 'label');
@@ -993,7 +986,7 @@
     const labelFont = m.skin === 'orbital'
       ? (compact ? '700 11px "Oxanium", "Sora"' : '700 12.5px "Oxanium", "Sora"')
       : m.skin === 'card'
-        ? (compact ? '700 18px "Oxanium", "Sora"' : '700 19.5px "Oxanium", "Sora"')
+        ? '700 18px "Oxanium", "Sora"'
         : (compact ? '700 11px "Oxanium", "Sora"' : '700 12px "Oxanium", "Sora"');
 
     if (showSetting('show_label')) {
@@ -1283,42 +1276,6 @@
       el.accountNewUsername.value = state.auth && state.auth.username ? state.auth.username : '';
     }
     clearAccountForm();
-    loadRecoveryKey();
-  }
-
-  function setRecoveryStatus(text, kind) {
-    if (!el.accountRecoveryStatus) return;
-    el.accountRecoveryStatus.textContent = text || '';
-    el.accountRecoveryStatus.classList.toggle('is-error', kind === 'error');
-    el.accountRecoveryStatus.classList.toggle('is-ok', kind === 'ok');
-  }
-
-  function applyRecoveryKeyPayload(data) {
-    const key = data && data.recovery_key ? String(data.recovery_key) : '';
-    const path = data && data.path ? String(data.path) : 'database/app.key';
-    if (el.accountRecoveryKey) {
-      el.accountRecoveryKey.value = key;
-      el.accountRecoveryKey.type = 'password';
-    }
-    if (el.btnRevealRecoveryKey) {
-      el.btnRevealRecoveryKey.classList.remove('is-shown');
-      const label = t('auth.reveal_recovery_key');
-      el.btnRevealRecoveryKey.setAttribute('aria-label', label);
-      el.btnRevealRecoveryKey.setAttribute('title', label);
-    }
-    if (el.accountRecoveryPath) {
-      el.accountRecoveryPath.textContent = `${t('auth.recovery_path')}: ${path}`;
-    }
-  }
-
-  async function loadRecoveryKey() {
-    if (!el.accountRecoveryKey) return;
-    try {
-      const data = await api('recovery_key');
-      applyRecoveryKeyPayload(data);
-    } catch (err) {
-      setRecoveryStatus(err.message || t('auth.recovery_load_failed'), 'error');
-    }
   }
 
   function passwordStrength(value) {
@@ -1583,50 +1540,10 @@
   }
 
   function toast(msg) {
-    if (!el.toast) return;
     el.toast.textContent = msg;
     el.toast.classList.remove('hidden');
-    el.toast.setAttribute('title', t('toast.copy_hint'));
     clearTimeout(toast._t);
-    const scheduleHide = () => {
-      clearTimeout(toast._t);
-      toast._t = setTimeout(() => {
-        if (toast._pinned) return;
-        el.toast.classList.add('hidden');
-      }, 5000);
-    };
-    toast._pinned = false;
-    scheduleHide();
-  }
-
-  if (el.toast) {
-    el.toast.addEventListener('mouseenter', () => {
-      toast._pinned = true;
-      clearTimeout(toast._t);
-    });
-    el.toast.addEventListener('mouseleave', () => {
-      toast._pinned = false;
-      clearTimeout(toast._t);
-      toast._t = setTimeout(() => el.toast.classList.add('hidden'), 5000);
-    });
-    el.toast.addEventListener('click', async () => {
-      const text = String(el.toast.textContent || '').trim();
-      if (!text || text === t('toast.copied')) return;
-      try {
-        await copyTextToClipboard(text);
-        const prev = text;
-        el.toast.textContent = t('toast.copied');
-        clearTimeout(toast._t);
-        toast._t = setTimeout(() => {
-          el.toast.textContent = prev;
-          toast._t = setTimeout(() => {
-            if (!toast._pinned) el.toast.classList.add('hidden');
-          }, 2500);
-        }, 900);
-      } catch (_) {
-        // Selection still works if clipboard API is blocked.
-      }
-    });
+    toast._t = setTimeout(() => el.toast.classList.add('hidden'), 3200);
   }
 
   function cloneTopology() {
@@ -3254,7 +3171,7 @@
       const statusTextColor = statusColor(status);
       const metaBaseFont = compact ? '500 9px "JetBrains Mono"' : '500 9.5px "JetBrains Mono"';
       const metaLatFont = compact ? '700 9px "JetBrains Mono"' : '700 9.5px "JetBrains Mono"';
-      const labelFont = compact ? '700 18px "Oxanium", "Sora"' : '700 19.5px "Oxanium", "Sora"';
+      const labelFont = '700 18px "Oxanium", "Sora"';
       const metaPadX = compact ? 6 : 7;
       let ty = y + m.stackH + m.labelGap;
 
@@ -7248,7 +7165,6 @@
   function resolveTheme(raw) {
     let key = String(raw || DEFAULT_SETTINGS.theme).toLowerCase().trim();
     if (key === 'midnight') key = 'dark';
-    if (key === 'sand') key = 'light';
     return THEME_KEYS.includes(key) ? key : DEFAULT_SETTINGS.theme;
   }
 
@@ -7373,6 +7289,8 @@
     syncGridSettingsUi();
     if (el.setTheme) el.setTheme.value = resolveTheme(s.theme);
     if (el.setUiLanguage) el.setUiLanguage.value = normalizeUiLang(s.ui_language);
+    if (el.setBackgroundEnabled) el.setBackgroundEnabled.checked = !!s.background_enabled;
+    syncBackgroundSchedUi();
     syncColorField(el.setStatusOnlineColor, el.setStatusOnlineColorText, s.status_online_color, DEFAULT_SETTINGS.status_online_color);
     syncColorField(el.setStatusOfflineColor, el.setStatusOfflineColorText, s.status_offline_color, DEFAULT_SETTINGS.status_offline_color);
     syncColorField(el.setStatusUnknownColor, el.setStatusUnknownColorText, s.status_unknown_color, DEFAULT_SETTINGS.status_unknown_color);
@@ -7399,84 +7317,9 @@
     if (!visible && el.setSnapDrag) el.setSnapDrag.checked = false;
   }
 
-  function syncTgShotSchedHintUi() {
-    // Cron status stays visible so setup/deps remain clear even when the switch is OFF.
-    if (el.bgSchedHint) el.bgSchedHint.classList.remove('hidden');
-  }
-
-  function applyCronStatus(cron) {
-    if (!cron || typeof cron !== 'object') return;
-    if (el.tgShotCronStatus) {
-      el.tgShotCronStatus.removeAttribute('data-i18n');
-      el.tgShotCronStatus.classList.toggle('is-ok', !!cron.installed);
-      el.tgShotCronStatus.classList.toggle('is-warn', !cron.installed);
-      if (cron.installed) {
-        el.tgShotCronStatus.textContent = cron.message || t('bg.cron_installed');
-      } else if (cron.ok === false && cron.message) {
-        el.tgShotCronStatus.textContent = cron.message;
-      } else {
-        el.tgShotCronStatus.textContent = t('bg.cron_missing');
-      }
-    }
-  }
-
-  function applyScreenshotDeps(deps) {
-    if (!el.tgShotDepsList) return;
-    const checks = Array.isArray(deps?.checks) ? deps.checks : [];
-    el.tgShotDepsList.replaceChildren();
-    if (!checks.length) {
-      const li = document.createElement('li');
-      li.className = 'is-warn';
-      li.textContent = t('tg.shot_deps_loading');
-      el.tgShotDepsList.appendChild(li);
-      return;
-    }
-    for (const check of checks) {
-      const id = String(check?.id || '');
-      const ok = !!check?.ok;
-      const detail = String(check?.detail || '').trim();
-      const li = document.createElement('li');
-      li.className = ok ? 'is-ok' : 'is-warn';
-      const mark = document.createElement('span');
-      mark.className = 'tg-dep-mark';
-      mark.textContent = ok ? '✓' : '✗';
-      mark.setAttribute('aria-hidden', 'true');
-      const label = document.createElement('span');
-      label.className = 'tg-dep-label';
-      const labelKey = id ? `tg.shot_dep_${id}` : '';
-      label.textContent = labelKey ? t(labelKey) : id;
-      li.append(mark, label);
-      if (detail) {
-        const detailEl = document.createElement('span');
-        detailEl.className = 'tg-dep-detail';
-        detailEl.textContent = detail;
-        li.appendChild(detailEl);
-      }
-      el.tgShotDepsList.appendChild(li);
-    }
-  }
-
-  async function refreshBackgroundCronStatus() {
-    try {
-      const data = await api('background_cron_status');
-      applyCronStatus(data.cron || {});
-    } catch (_) {
-      // Ignore — cron status is informational.
-    }
-  }
-
-  async function refreshTelegramScreenshotDeps() {
-    if (!el.tgShotDepsList) return;
-    el.tgShotDepsList.replaceChildren();
-    const loading = document.createElement('li');
-    loading.textContent = t('tg.shot_deps_loading');
-    el.tgShotDepsList.appendChild(loading);
-    try {
-      const data = await api('telegram_screenshot_deps');
-      applyScreenshotDeps(data.deps || {});
-    } catch (_) {
-      applyScreenshotDeps({ checks: [] });
-    }
+  function syncBackgroundSchedUi() {
+    if (!el.bgSchedHint || !el.setBackgroundEnabled) return;
+    el.bgSchedHint.classList.toggle('hidden', !el.setBackgroundEnabled.checked);
   }
 
   function appendCommonPortRow(portValue, noteValue) {
@@ -7745,6 +7588,7 @@
       layout_locked: !!state.settings.layout_locked,
       theme: resolveTheme(el.setTheme?.value),
       ui_language: normalizeUiLang(el.setUiLanguage?.value),
+      background_enabled: !!(el.setBackgroundEnabled && el.setBackgroundEnabled.checked),
       status_online_color: readColorField(
         el.setStatusOnlineColor,
         el.setStatusOnlineColorText,
@@ -7798,60 +7642,6 @@
     if (el.tgNotifyDown) el.tgNotifyDown.checked = s.telegram_notify_down !== false;
     if (el.tgTplUpPreview) el.tgTplUpPreview.value = s.telegram_tpl_up || DEFAULT_SETTINGS.telegram_tpl_up;
     if (el.tgTplDownPreview) el.tgTplDownPreview.value = s.telegram_tpl_down || DEFAULT_SETTINGS.telegram_tpl_down;
-    updateTgUpDownPreviews();
-  }
-
-  /** Same sample device as pamantau_telegram_test_transition fallback. */
-  const TG_UPDOWN_PREVIEW_SAMPLE = {
-    label: 'Contoh-Router',
-    ip: '192.168.1.1',
-    type: 'router',
-  };
-
-  /** Mirrors pamantau_telegram_render_template() in includes/telegram.php */
-  function renderTelegramTemplate(template, vars) {
-    const latency = vars.latency;
-    const latencyStr = (latency === null || latency === undefined || latency === '') ? '—' : String(latency);
-    const map = {
-      '{label}': String(vars.label ?? ''),
-      '{ip}': String(vars.ip ?? ''),
-      '{type}': String(vars.type ?? ''),
-      '{latency}': latencyStr,
-      '{time}': String(vars.time ?? ''),
-      '{status}': String(vars.status ?? ''),
-    };
-    return String(template || '').replace(/\{label\}|\{ip\}|\{type\}|\{latency\}|\{time\}|\{status\}/g, (m) => map[m] ?? m);
-  }
-
-  function formatTgPreviewTime(date = new Date()) {
-    const pad = (n) => String(n).padStart(2, '0');
-    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
-  }
-
-  function updateTgUpDownPreviews() {
-    const time = formatTgPreviewTime();
-    const upTpl = el.tgTplUpPreview
-      ? el.tgTplUpPreview.value
-      : (state.settings.telegram_tpl_up || DEFAULT_SETTINGS.telegram_tpl_up);
-    const downTpl = el.tgTplDownPreview
-      ? el.tgTplDownPreview.value
-      : (state.settings.telegram_tpl_down || DEFAULT_SETTINGS.telegram_tpl_down);
-    if (el.tgMsgPreviewUp) {
-      el.tgMsgPreviewUp.textContent = renderTelegramTemplate(upTpl, {
-        ...TG_UPDOWN_PREVIEW_SAMPLE,
-        latency: 12,
-        time,
-        status: 'online',
-      });
-    }
-    if (el.tgMsgPreviewDown) {
-      el.tgMsgPreviewDown.textContent = renderTelegramTemplate(downTpl, {
-        ...TG_UPDOWN_PREVIEW_SAMPLE,
-        latency: null,
-        time,
-        status: 'offline',
-      });
-    }
   }
 
   function syncTgShotScheduleFields() {
@@ -7861,28 +7651,6 @@
     el.tgShotFieldsInterval?.classList.toggle('hidden', mode !== 'interval');
     el.tgShotFieldsHourly?.classList.toggle('hidden', mode !== 'hourly');
     el.tgShotFieldsDaily?.classList.toggle('hidden', mode !== 'daily');
-  }
-
-  function formatDateTimeHuman(value) {
-    const raw = String(value || '').trim();
-    if (!raw) return '';
-    const dt = new Date(raw);
-    if (Number.isNaN(dt.getTime())) return raw;
-    const lang = normalizeUiLang(state.settings.ui_language) === 'en' ? 'en-GB' : 'id-ID';
-    const opts = {
-      timeZone: 'Asia/Jakarta',
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    };
-    let formatted = dt.toLocaleString(lang, opts);
-    if (lang === 'id-ID') {
-      formatted = formatted.replace(/\s+pukul\s+/i, ', ');
-    }
-    return `${formatted} WIB`;
   }
 
   function fillTgScreenshotForm() {
@@ -7906,9 +7674,6 @@
       el.tgShotDailyTime.value = /^\d{1,2}:\d{2}$/.test(raw) ? raw.padStart(5, '0') : '08:00';
     }
     syncTgShotScheduleFields();
-    syncTgShotSchedHintUi();
-    refreshBackgroundCronStatus();
-    refreshTelegramScreenshotDeps();
     if (el.tgShotLastHint) {
       const last = String(s.telegram_screenshot_last_at || '').trim();
       if (last) {
@@ -7918,6 +7683,35 @@
         el.tgShotLastHint.setAttribute('data-i18n', 'tg.shot_last_none');
         el.tgShotLastHint.textContent = t('tg.shot_last_none');
       }
+    }
+  }
+
+  /** Asia/Jakarta — e.g. "8 Agustus 2026 02:49 WIB" */
+  function formatDateTimeHuman(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) return raw;
+    const isEn = normalizeUiLang(state.settings?.ui_language) === 'en';
+    try {
+      const parts = new Intl.DateTimeFormat(isEn ? 'en-GB' : 'id-ID', {
+        timeZone: 'Asia/Jakarta',
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false,
+      }).formatToParts(dt);
+      const get = (type) => parts.find((p) => p.type === type)?.value || '';
+      const day = get('day');
+      const month = get('month');
+      const year = get('year');
+      const hour = get('hour').padStart(2, '0');
+      const minute = get('minute').padStart(2, '0');
+      return `${day} ${month} ${year} ${hour}:${minute} WIB`;
+    } catch (_) {
+      return raw;
     }
   }
 
@@ -7978,10 +7772,6 @@
   async function saveTelegramPatch(patch) {
     const data = await api('save_settings', patch);
     applyTelegramSettingsResponse(data.settings || patch);
-    if (data.cron) applyCronStatus(data.cron);
-    if (el.modalTgScreenshot && !el.modalTgScreenshot.classList.contains('hidden')) {
-      refreshTelegramScreenshotDeps();
-    }
     if (
       Object.prototype.hasOwnProperty.call(patch, 'telegram_screenshot_enabled')
       || Object.prototype.hasOwnProperty.call(patch, 'telegram_screenshot_format')
@@ -9588,7 +9378,7 @@ ${periodHtml}
 
   function syncDocLabel() {
     const name = projectDisplayName();
-    // "Saved" when Simpan (server) or Simpan sebagai (export) has associated a name and no pending edits.
+    // "Saved" hanya jika sudah ada file (Save/Open) dan belum ada perubahan.
     const hasFile = !!state.doc.name;
     const saved = hasFile && !state.docDirty;
     if (el.docLabel) {
@@ -9648,6 +9438,10 @@ ${periodHtml}
     const fileBase = sanitizeProjectFileBase(state.doc.name);
     const titleBase = currentProjectTitleBase();
     return !!fileBase && fileBase === titleBase;
+  }
+
+  function saveActsAsSaveAs() {
+    return !projectTitleMatchesAssociatedFile();
   }
 
   function commitProjectTitleFromInput() {
@@ -9967,31 +9761,16 @@ ${periodHtml}
     c.restore();
   }
 
-  // Telegram screenshots: print-quality density (300 DPI vs CSS reference 96 DPI).
-  const TELEGRAM_SNAPSHOT_DPI = 300;
-  const TELEGRAM_SNAPSHOT_CSS_DPI = 96;
-  const TELEGRAM_SNAPSHOT_PIXEL_RATIO = TELEGRAM_SNAPSHOT_DPI / TELEGRAM_SNAPSHOT_CSS_DPI; // 3.125
-  // Keep within server validate caps (includes/topology_snapshot.php).
-  const TELEGRAM_SNAPSHOT_MAX_WIDTH = 4000;
-  const TELEGRAM_SNAPSHOT_MAX_HEIGHT = 3000;
-
-  function renderTopologyCanvas({
-    pixelRatio = 2,
-    background = null,
-    maxWidth = 3600,
-    maxHeight = 2700,
-  } = {}) {
+  function renderTopologyCanvas({ pixelRatio = 2, background = null } = {}) {
     const box = deviceWorldBounds(48);
-    const capW = Math.max(1, Math.floor(Number(maxWidth) || 3600));
-    const capH = Math.max(1, Math.floor(Number(maxHeight) || 2700));
     const renderRatio = Math.min(
       Math.max(0.01, Number(pixelRatio) || 2),
-      capW / Math.max(1, box.w),
-      capH / Math.max(1, box.h),
+      3600 / Math.max(1, box.w),
+      2700 / Math.max(1, box.h),
     );
     const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.min(capW, Math.floor(box.w * renderRatio)));
-    canvas.height = Math.max(1, Math.min(capH, Math.floor(box.h * renderRatio)));
+    canvas.width = Math.max(1, Math.min(3600, Math.floor(box.w * renderRatio)));
+    canvas.height = Math.max(1, Math.min(2700, Math.floor(box.h * renderRatio)));
     const c = canvas.getContext('2d');
     c.setTransform(renderRatio, 0, 0, renderRatio, 0, 0);
     paintTopologyCanvasBackground(c, box.w, box.h, background);
@@ -10057,9 +9836,7 @@ ${periodHtml}
       latency: d.latency,
     }));
     const source = JSON.stringify({
-      renderer: 3,
-      dpi: TELEGRAM_SNAPSHOT_DPI,
-      pixelRatio: TELEGRAM_SNAPSHOT_PIXEL_RATIO,
+      renderer: 2,
       format: format === 'jpg' ? 'jpg' : 'png',
       settings: {
         theme: settings.theme,
@@ -10087,7 +9864,7 @@ ${periodHtml}
     }
     return {
       source,
-      fingerprint: `canvas-v3-${(hash >>> 0).toString(16).padStart(8, '0')}-${source.length}`,
+      fingerprint: `canvas-v2-${(hash >>> 0).toString(16).padStart(8, '0')}-${source.length}`,
     };
   }
 
@@ -10113,18 +9890,13 @@ ${periodHtml}
 
   async function buildTelegramCanvasSnapshot(format = null) {
     const requested = format === 'jpg' ? 'jpg' : 'png';
-    let canvas = renderTopologyCanvas({
-      pixelRatio: TELEGRAM_SNAPSHOT_PIXEL_RATIO,
-      maxWidth: TELEGRAM_SNAPSHOT_MAX_WIDTH,
-      maxHeight: TELEGRAM_SNAPSHOT_MAX_HEIGHT,
-    });
+    let canvas = renderTopologyCanvas({ pixelRatio: 2 });
     const preferredUploadBytes = Math.min(
       7 * 1024 * 1024,
       Math.max(128 * 1024, Number(telegramCanvasUploadLimitBytes) || 1536 * 1024),
     );
     let actual = requested;
     let mime = requested === 'jpg' ? 'image/jpeg' : 'image/png';
-    // JPG quality stays high (~print); size fallbacks below may reduce quality/scale.
     let blob = await canvasToBlob(canvas, mime, requested === 'jpg' ? 0.92 : undefined);
 
     // Prefer the selected format, then progressively compress and resize.
@@ -10210,20 +9982,6 @@ ${periodHtml}
     return data;
   }
 
-  function parseTopologyFileText(raw, fileName = '') {
-    const text = String(raw ?? '');
-    if (!text.trim()) {
-      const name = fileName ? ` (${fileName})` : '';
-      throw new Error(t('toast.open_empty', { name }) || `File JSON kosong${name}`);
-    }
-    try {
-      return JSON.parse(text);
-    } catch (err) {
-      const detail = err && err.message ? err.message : String(err);
-      throw new Error(t('toast.open_invalid', { err: detail }) || `JSON tidak valid: ${detail}`);
-    }
-  }
-
   async function applyOpenedTopology(data, meta = {}) {
     const devices = data.devices || [];
     const connections = data.connections || [];
@@ -10263,9 +10021,9 @@ ${periodHtml}
         // Request readwrite while we still have the picker user gesture
         await ensureFileHandlePermission(handle, 'readwrite');
         const file = await handle.getFile();
-        const data = parseTopologyFileText(await file.text(), file.name);
+        const data = JSON.parse(await file.text());
         await applyOpenedTopology(data, { name: file.name, handle });
-        toast(t('toast.opened_local', { name: file.name }));
+        toast(t('toast.opened', { name: file.name }));
         return;
       }
       el.importFile.click();
@@ -10281,27 +10039,6 @@ ${periodHtml}
     await writable.close();
   }
 
-  function isFileHandleDeniedError(err) {
-    if (!err) return false;
-    const name = String(err.name || '');
-    const msg = String(err.message || err);
-    return name === 'NotAllowedError'
-      || name === 'SecurityError'
-      || /createWritable|not allowed by the user agent|NotAllowedError/i.test(msg);
-  }
-
-  async function finishSaveAsDownload(blob, filename) {
-    const name = filename || suggestedSaveName();
-    downloadBlob(blob, name);
-    await rememberDoc({
-      name,
-      handle: null,
-      title: sanitizeProjectFileBase(name) || state.doc.title || '',
-    });
-    markDocClean();
-    toast(t('toast.save_download_fallback', { name }));
-  }
-
   async function persistTopologyToServer() {
     await api('replace_topology', {
       devices: state.devices,
@@ -10309,116 +10046,77 @@ ${periodHtml}
     });
   }
 
-  /** Persist current topology to app/server storage (database/pamantau.json). Never writes to the client device. */
-  async function saveTopologyToServer() {
+  async function saveTopologyFile({ saveAs = false } = {}) {
     commitProjectTitleFromInput();
-    try {
-      await persistTopologyToServer();
-      const suggested = suggestedSaveName();
-      // Keep an associated project name for the doc badge, but drop any local FS handle —
-      // Simpan is server-backed; local handles are only for Open / Simpan sebagai (export).
-      const name = (state.doc.name && projectTitleMatchesAssociatedFile())
-        ? state.doc.name
-        : suggested;
-      const title = sanitizeProjectFileBase(name) || state.doc.title || '';
-      await rememberDoc({
-        name,
-        handle: null,
-        title,
-      });
-      markDocClean();
-      toast(t('toast.saved_server', { name }));
-    } catch (err) {
-      if (err && err.name === 'AbortError') return;
-      toast(t('toast.save_fail', { err: err.message || err }));
-    }
-  }
-
-  /** Export topology JSON to the user's device (File System Access or download). */
-  async function exportTopologyFile() {
-    commitProjectTitleFromInput();
+    // Renamed project (title ≠ associated file base) → treat Save like Save as.
+    if (!saveAs && saveActsAsSaveAs()) saveAs = true;
     const payload = await fullProjectPayload();
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const suggested = suggestedSaveName();
 
     try {
-      // Export never replaces server-owned monitoring data (topology-only payload).
+      // Saving a local project never replaces server-owned monitoring data.
 
-      if (state.doc.handle) {
+      if (!saveAs && state.doc.handle) {
         const ok = await ensureFileHandlePermission(state.doc.handle, 'readwrite');
         if (ok) {
-          try {
-            await writeJsonToHandle(state.doc.handle, blob);
-            const name = state.doc.name || state.doc.handle.name || suggested;
-            await rememberDoc({
-              name,
-              handle: state.doc.handle,
-              title: state.doc.title || sanitizeProjectFileBase(name),
-            });
-            markDocClean();
-            toast(t('toast.saved_export', { name }));
-            return;
-          } catch (writeErr) {
-            if (!isFileHandleDeniedError(writeErr)) throw writeErr;
-            // Restored handle can report "granted" then still reject createWritable.
-            await rememberDoc({ handle: null });
-          }
-        }
-      }
-
-      // Some embeds (e.g. IDE Simple Browser) expose the picker but block createWritable.
-      // Prefer a fresh picker when available; on write denial, fall back to download.
-      if (window.showSaveFilePicker) {
-        try {
-          const handle = await window.showSaveFilePicker({
-            suggestedName: suggested,
-            types: [{
-              description: 'Pamantau Project',
-              accept: { 'application/json': ['.json'] },
-            }],
+          await writeJsonToHandle(state.doc.handle, blob);
+          const name = state.doc.name || state.doc.handle.name || suggested;
+          await rememberDoc({
+            name,
+            handle: state.doc.handle,
+            title: state.doc.title || sanitizeProjectFileBase(name),
           });
-          try {
-            await writeJsonToHandle(handle, blob);
-            await rememberDoc({
-              name: handle.name,
-              handle,
-              title: sanitizeProjectFileBase(handle.name) || state.doc.title || '',
-            });
-            markDocClean();
-            toast(t('toast.saved_export', { name: handle.name }));
-            return;
-          } catch (writeErr) {
-            if (!isFileHandleDeniedError(writeErr)) throw writeErr;
-            await rememberDoc({ handle: null });
-            await finishSaveAsDownload(blob, handle.name || suggested);
-            return;
-          }
-        } catch (pickerErr) {
-          if (pickerErr && pickerErr.name === 'AbortError') return;
-          // Picker itself blocked — fall through to download.
-          if (!isFileHandleDeniedError(pickerErr) && pickerErr.name !== 'SecurityError') {
-            throw pickerErr;
-          }
+          markDocClean();
+          toast(t('toast.saved', { name }));
+          return;
         }
+        // Permission denied / unavailable — fall through to Save as picker
       }
 
-      await finishSaveAsDownload(blob, suggested);
+      if (window.showSaveFilePicker) {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: suggested,
+          types: [{
+            description: 'Pamantau Project',
+            accept: { 'application/json': ['.json'] },
+          }],
+        });
+        await writeJsonToHandle(handle, blob);
+        await rememberDoc({
+          name: handle.name,
+          handle,
+          title: sanitizeProjectFileBase(handle.name) || state.doc.title || '',
+        });
+        markDocClean();
+        toast(t('toast.saved', { name: handle.name }));
+        return;
+      }
+
+      // Fallback browser tanpa File System Access API
+      if (!saveAs && state.doc.name) {
+        downloadBlob(blob, state.doc.name);
+        await rememberDoc({
+          name: state.doc.name,
+          handle: null,
+          title: state.doc.title || sanitizeProjectFileBase(state.doc.name),
+        });
+        markDocClean();
+        toast(t('toast.redownload', { name: state.doc.name }));
+        return;
+      }
+      downloadBlob(blob, suggested);
+      await rememberDoc({
+        name: suggested,
+        handle: null,
+        title: sanitizeProjectFileBase(suggested) || state.doc.title || '',
+      });
+      markDocClean();
+      toast(t('toast.save_as_done'));
     } catch (err) {
       if (err && err.name === 'AbortError') return;
-      try {
-        await finishSaveAsDownload(blob, suggested);
-      } catch (_) {
-        toast(t('toast.save_fail', { err: err.message || err }));
-      }
+      toast(t('toast.save_fail', { err: err.message || err }));
     }
-  }
-
-  async function saveTopologyFile({ saveAs = false } = {}) {
-    if (saveAs) {
-      await exportTopologyFile();
-      return;
-    }
-    await saveTopologyToServer();
   }
 
   function exportTopologyImage(format) {
@@ -10712,9 +10410,9 @@ ${periodHtml}
     el.importFile.value = '';
     if (!file) return;
     try {
-      const data = parseTopologyFileText(await file.text(), file.name);
+      const data = JSON.parse(await file.text());
       await applyOpenedTopology(data, { name: file.name, handle: null });
-      toast(t('toast.opened_local', { name: file.name }));
+      toast(t('toast.opened', { name: file.name }));
     } catch (err) {
       toast(t('toast.open_fail', { err: err.message }));
     }
@@ -10956,61 +10654,6 @@ ${periodHtml}
     });
   }
 
-  if (el.btnRevealRecoveryKey && el.accountRecoveryKey) {
-    el.btnRevealRecoveryKey.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const show = el.accountRecoveryKey.type === 'password';
-      el.accountRecoveryKey.type = show ? 'text' : 'password';
-      el.btnRevealRecoveryKey.classList.toggle('is-shown', show);
-      const label = show ? t('auth.hide_recovery_key') : t('auth.reveal_recovery_key');
-      el.btnRevealRecoveryKey.setAttribute('aria-label', label);
-      el.btnRevealRecoveryKey.setAttribute('title', label);
-    });
-  }
-
-  if (el.btnCopyRecoveryKey && el.accountRecoveryKey) {
-    el.btnCopyRecoveryKey.addEventListener('click', async () => {
-      const value = el.accountRecoveryKey.value.trim();
-      if (!value) {
-        setRecoveryStatus(t('auth.recovery_load_failed'), 'error');
-        return;
-      }
-      try {
-        await copyTextToClipboard(value);
-        setRecoveryStatus(t('auth.recovery_copied'), 'ok');
-        toast(t('auth.recovery_copied'));
-      } catch (_) {
-        setRecoveryStatus(t('toast.copy_fail'), 'error');
-        toast(t('toast.copy_fail'));
-      }
-    });
-  }
-
-  if (el.btnRotateRecoveryKey) {
-    el.btnRotateRecoveryKey.addEventListener('click', async () => {
-      const ok = await confirmDialog({
-        title: t('auth.recovery_section'),
-        message: t('auth.rotate_recovery_confirm'),
-        confirmLabel: t('auth.rotate_recovery_key'),
-      });
-      if (!ok) return;
-      el.btnRotateRecoveryKey.disabled = true;
-      try {
-        const data = await api('rotate_recovery_key', {});
-        applyRecoveryKeyPayload(data);
-        setRecoveryStatus(t('auth.recovery_rotated'), 'ok');
-        toast(t('auth.recovery_rotated'));
-      } catch (err) {
-        const message = err.message || String(err);
-        setRecoveryStatus(message, 'error');
-        toast(message);
-      } finally {
-        el.btnRotateRecoveryKey.disabled = false;
-      }
-    });
-  }
-
   if (el.tgBotToken) {
     el.tgBotToken.addEventListener('input', () => {
       tgTokenDirty = true;
@@ -11020,11 +10663,6 @@ ${periodHtml}
   document.getElementById('btnCloseTgUpDown')?.addEventListener('click', () => closeTgUpDown());
   document.getElementById('btnCloseTgScreenshot')?.addEventListener('click', () => closeTgScreenshot());
   document.getElementById('btnCloseTgSettings')?.addEventListener('click', () => closeTgSettings());
-
-  el.tgTplUpPreview?.addEventListener('input', updateTgUpDownPreviews);
-  el.tgTplUpPreview?.addEventListener('change', updateTgUpDownPreviews);
-  el.tgTplDownPreview?.addEventListener('input', updateTgUpDownPreviews);
-  el.tgTplDownPreview?.addEventListener('change', updateTgUpDownPreviews);
 
   document.getElementById('btnSaveTgUpDown')?.addEventListener('click', async () => {
     try {
@@ -11069,32 +10707,26 @@ ${periodHtml}
         : 'interval';
       let dailyTime = String(el.tgShotDailyTime?.value || '08:00').trim();
       if (!/^\d{1,2}:\d{2}$/.test(dailyTime)) dailyTime = '08:00';
-      const enabled = !!(el.tgShotEnabled && el.tgShotEnabled.checked);
-      const data = await saveTelegramPatch({
-        telegram_screenshot_enabled: enabled,
+      const shotOn = !!(el.tgShotEnabled && el.tgShotEnabled.checked);
+      await saveTelegramPatch({
+        telegram_screenshot_enabled: shotOn,
+        // Worker CLI skips when Background OFF — keep them in sync for scheduled shots.
+        background_enabled: shotOn ? true : undefined,
         telegram_screenshot_format: el.tgShotFormat && el.tgShotFormat.value === 'jpg' ? 'jpg' : 'png',
         telegram_screenshot_schedule_mode: mode,
         telegram_screenshot_every_min: Math.min(1440, Math.max(1, Number(el.tgShotEvery?.value || 30))),
         telegram_screenshot_hourly_minute: Math.min(59, Math.max(0, Number(el.tgShotHourlyMinute?.value ?? 0))),
         telegram_screenshot_daily_time: dailyTime,
       });
+      if (shotOn && el.setBackgroundEnabled) el.setBackgroundEnabled.checked = true;
       closeTgScreenshot();
-      if (data && data.cron) {
-        if (data.cron.ok === false) {
-          toast(data.cron.message || t('bg.cron_failed'));
-        } else {
-          toast(enabled ? t('bg.cron_install_ok') : t('bg.cron_remove_ok'));
-        }
-      } else {
-        toast(t('toast.tg_saved'));
-      }
+      toast(t('toast.tg_saved'));
     } catch (err) {
       toast(err.message || String(err));
     }
   });
 
   el.tgShotMode?.addEventListener('change', syncTgShotScheduleFields);
-  el.tgShotEnabled?.addEventListener('change', () => syncTgShotSchedHintUi());
 
   document.getElementById('btnTgTestShot')?.addEventListener('click', async () => {
     try {
@@ -11166,6 +10798,21 @@ ${periodHtml}
   }
   if (el.setShowGrid) {
     el.setShowGrid.addEventListener('change', () => syncGridSettingsUi());
+  }
+  if (el.setBackgroundEnabled) {
+    el.setBackgroundEnabled.addEventListener('change', () => syncBackgroundSchedUi());
+  }
+  if (el.btnCopyBgCron) {
+    el.btnCopyBgCron.addEventListener('click', async () => {
+      const line = (el.bgCronHint && el.bgCronHint.textContent || '').trim();
+      if (!line) return;
+      try {
+        await copyTextToClipboard(line);
+        toast(t('toast.copied'));
+      } catch (_) {
+        toast(t('toast.clipboard_denied'));
+      }
+    });
   }
   if (el.btnAddCommonPort) {
     el.btnAddCommonPort.addEventListener('click', () => {

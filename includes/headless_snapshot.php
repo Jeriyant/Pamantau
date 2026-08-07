@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-const PAMANTAU_HEADLESS_SNAPSHOT_TTL = 90;
+const PAMANTAU_HEADLESS_SNAPSHOT_TTL = 120;
 
 function pamantau_headless_job_path(): string
 {
@@ -30,7 +30,8 @@ function pamantau_record_runtime_base_url(): void
     $https = !empty($_SERVER['HTTPS']) && strtolower((string) $_SERVER['HTTPS']) !== 'off';
     $script = str_replace('\\', '/', (string) ($_SERVER['SCRIPT_NAME'] ?? '/index.php'));
     $basePath = rtrim(str_replace('/api', '', dirname($script)), '/.');
-    $baseUrl = ($https ? 'https' : 'http') . '://localhost:' . $port
+    // Prefer 127.0.0.1 so cron/root Chromium avoids localhost → ::1 quirks.
+    $baseUrl = ($https ? 'https' : 'http') . '://127.0.0.1:' . $port
         . ($basePath !== '' ? '/' . ltrim($basePath, '/') : '') . '/';
     @file_put_contents(
         pamantau_runtime_base_url_path(),
@@ -130,62 +131,14 @@ function pamantau_headless_complete_upload(mixed $upload, string $token): array
     return array_merge($valid, ['ok' => true]);
 }
 
-function pamantau_is_wsl(): bool
-{
-    if (PHP_OS_FAMILY === 'Windows') {
-        return false;
-    }
-    $version = @file_get_contents('/proc/version');
-    return is_string($version) && stripos($version, 'microsoft') !== false;
-}
-
-/** True when the browser binary is a Windows .exe (possibly launched from WSL). */
-function pamantau_headless_browser_is_windows_exe(string $browser): bool
-{
-    return (bool) preg_match('/\.exe$/i', $browser);
-}
-
-/**
- * Convert a WSL path under /mnt/<drive>/... to a Windows path.
- * Returns '' when conversion is not possible.
- */
-function pamantau_wsl_to_windows_path(string $linuxPath): string
-{
-    $linuxPath = str_replace('\\', '/', $linuxPath);
-    if (preg_match('#^/mnt/([a-zA-Z])/(.*)$#', $linuxPath, $m)) {
-        return strtoupper($m[1]) . ':\\' . str_replace('/', '\\', $m[2]);
-    }
-    return '';
-}
-
-function pamantau_headless_windows_temp_dir(): string
-{
-    foreach ([
-        '/mnt/c/Windows/Temp',
-        '/mnt/c/Temp',
-    ] as $dir) {
-        if (is_dir($dir) && is_writable($dir)) {
-            return $dir;
-        }
-    }
-    return sys_get_temp_dir();
-}
-
 function pamantau_headless_browser_candidate_usable(string $candidate): bool
 {
-    if ($candidate === '' || !is_file($candidate)) {
-        return false;
-    }
-    // Windows .exe on WSL/drvfs is often not reported as executable.
-    if (pamantau_headless_browser_is_windows_exe($candidate)) {
-        return true;
-    }
-    return is_executable($candidate);
+    return $candidate !== '' && is_file($candidate) && is_executable($candidate);
 }
 
 /**
- * Native Linux browser paths (Debian/Ubuntu first). Absolute paths before PATH
- * lookup so root cron with a short PATH still finds Chromium.
+ * Native Linux Chromium/Chrome paths (Debian/Ubuntu first). Absolute paths before
+ * PATH lookup so root cron with a short PATH still finds the browser.
  *
  * @return list<string>
  */
@@ -221,45 +174,35 @@ function pamantau_headless_linux_browser_candidates(): array
     return array_values(array_unique($candidates));
 }
 
-/**
- * @return list<string>
- */
-function pamantau_headless_windows_browser_candidates(): array
+function pamantau_headless_browser_missing_hint(): string
 {
-    $candidates = [];
-    $configured = trim((string) getenv('PAMANTAU_BROWSER_PATH'));
-    if ($configured !== '') {
-        $candidates[] = $configured;
+    if (PHP_OS_FAMILY === 'Windows') {
+        return 'Google Chrome atau Microsoft Edge tidak ditemukan untuk renderer background';
     }
-    return array_merge($candidates, [
-        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-        'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-    ]);
+    return 'Chromium/Chrome tidak ditemukan. Di Debian/Ubuntu: sudo apt install chromium'
+        . ' (atau set PAMANTAU_BROWSER_PATH)';
 }
 
-/**
- * WSL-only fallback when no native Linux Chromium/Chrome is installed.
- *
- * @return list<string>
- */
-function pamantau_headless_wsl_windows_browser_candidates(): array
+function pamantau_headless_browser_executable(): string
 {
-    return [
-        '/mnt/c/Program Files/Google/Chrome/Application/chrome.exe',
-        '/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-        '/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe',
-        '/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-    ];
-}
-
-function pamantau_headless_pick_browser(array $candidates): string
-{
-    foreach ($candidates as $candidate) {
-        if (!is_string($candidate)) {
-            continue;
+    $configured = trim((string) getenv('PAMANTAU_BROWSER_PATH'));
+    if (PHP_OS_FAMILY === 'Windows') {
+        $candidates = $configured !== '' ? [$configured] : [];
+        $candidates = array_merge($candidates, [
+            'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+            'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+            'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+            'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+        ]);
+        foreach ($candidates as $candidate) {
+            if (pamantau_headless_browser_candidate_usable($candidate)) {
+                return $candidate;
+            }
         }
+        return '';
+    }
+
+    foreach (pamantau_headless_linux_browser_candidates() as $candidate) {
         if (pamantau_headless_browser_candidate_usable($candidate)) {
             return $candidate;
         }
@@ -267,59 +210,11 @@ function pamantau_headless_pick_browser(array $candidates): string
     return '';
 }
 
-function pamantau_headless_browser_executable(): string
-{
-    if (PHP_OS_FAMILY === 'Windows') {
-        return pamantau_headless_pick_browser(pamantau_headless_windows_browser_candidates());
-    }
-
-    // Primary target: native Linux (Debian/Ubuntu).
-    $linux = pamantau_headless_pick_browser(pamantau_headless_linux_browser_candidates());
-    if ($linux !== '') {
-        return $linux;
-    }
-
-    // Optional last resort only on WSL when apt Chromium is missing.
-    if (pamantau_is_wsl()) {
-        return pamantau_headless_pick_browser(pamantau_headless_wsl_windows_browser_candidates());
-    }
-
-    return '';
-}
-
-function pamantau_headless_browser_missing_hint(): string
-{
-    if (PHP_OS_FAMILY === 'Windows') {
-        return 'Google Chrome atau Microsoft Edge tidak ditemukan untuk renderer background';
-    }
-    return 'Chromium/Chrome tidak ditemukan di server. Di Debian/Ubuntu: sudo apt install chromium'
-        . ' (atau set PAMANTAU_BROWSER_PATH ke binary headless)';
-}
-
 function pamantau_headless_remove_tree(string $path): void
 {
     $real = realpath($path);
-    if ($real === false) {
-        return;
-    }
-    $allowedRoots = [];
     $temp = realpath(sys_get_temp_dir());
-    if ($temp !== false) {
-        $allowedRoots[] = $temp;
-    }
-    $winTemp = realpath(pamantau_headless_windows_temp_dir());
-    if ($winTemp !== false) {
-        $allowedRoots[] = $winTemp;
-    }
-    $ok = false;
-    foreach ($allowedRoots as $root) {
-        $prefix = rtrim($root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'pamantau-headless-';
-        if (str_starts_with(strtolower($real), strtolower($prefix))) {
-            $ok = true;
-            break;
-        }
-    }
-    if (!$ok) {
+    if ($real === false || $temp === false || !str_starts_with(strtolower($real), strtolower($temp . DIRECTORY_SEPARATOR . 'pamantau-headless-'))) {
         return;
     }
     $items = new RecursiveIteratorIterator(
@@ -333,23 +228,15 @@ function pamantau_headless_remove_tree(string $path): void
 }
 
 /** Stop only the browser process tree started for this render job. */
-function pamantau_headless_terminate_process(mixed $process, string $browser = ''): void
+function pamantau_headless_terminate_process(mixed $process): void
 {
     if (!is_resource($process)) {
         return;
     }
     $status = proc_get_status($process);
     $pid = max(0, (int) ($status['pid'] ?? 0));
-    $useWindowsKill = $pid > 0 && (
-        PHP_OS_FAMILY === 'Windows'
-        || pamantau_headless_browser_is_windows_exe($browser)
-    );
-    if ($useWindowsKill) {
-        $taskkill = PHP_OS_FAMILY === 'Windows'
-            ? 'taskkill.exe'
-            : '/mnt/c/Windows/System32/taskkill.exe';
-        $nullPath = PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null';
-        $null = @fopen($nullPath, 'w');
+    if ($pid > 0 && PHP_OS_FAMILY === 'Windows') {
+        $null = fopen('NUL', 'w');
         $descriptors = [
             0 => ['pipe', 'r'],
             1 => is_resource($null) ? $null : ['pipe', 'w'],
@@ -357,7 +244,7 @@ function pamantau_headless_terminate_process(mixed $process, string $browser = '
         ];
         $killerPipes = [];
         $killer = @proc_open(
-            [$taskkill, '/PID', (string) $pid, '/T', '/F'],
+            ['taskkill.exe', '/PID', (string) $pid, '/T', '/F'],
             $descriptors,
             $killerPipes,
             null,
@@ -374,7 +261,6 @@ function pamantau_headless_terminate_process(mixed $process, string $browser = '
             fclose($null);
         }
     } elseif ($pid > 0 && function_exists('posix_kill')) {
-        // Chromium on Linux forks children; signal the process group when possible.
         @posix_kill(-$pid, defined('SIGTERM') ? SIGTERM : 15);
         @posix_kill($pid, defined('SIGTERM') ? SIGTERM : 15);
     }
@@ -382,6 +268,89 @@ function pamantau_headless_terminate_process(mixed $process, string $browser = '
     if (!empty($status['running'])) {
         @proc_terminate($process);
     }
+}
+
+/**
+ * Environment for headless Chromium on Linux VPS (no interactive D-Bus session).
+ *
+ * @return array<string,string>|null null = inherit (Windows)
+ */
+function pamantau_headless_proc_env(): ?array
+{
+    if (PHP_OS_FAMILY === 'Windows') {
+        return null;
+    }
+
+    $env = [];
+    $fromGetenv = @getenv();
+    if (is_array($fromGetenv)) {
+        foreach ($fromGetenv as $key => $value) {
+            if (is_string($key) && is_string($value) && $key !== '') {
+                $env[$key] = $value;
+            }
+        }
+    }
+    foreach ($_ENV as $key => $value) {
+        if (is_string($key) && is_string($value) && $key !== '') {
+            $env[$key] = $value;
+        }
+    }
+
+    // Empty/malformed DBUS_SESSION_BUS_ADDRESS under cron causes:
+    // "Could not parse server address: Unknown address type"
+    unset($env['DBUS_SESSION_BUS_ADDRESS'], $env['DBUS_STARTER_ADDRESS'], $env['DBUS_STARTER_BUS_TYPE']);
+    foreach ([
+        '/run/dbus/system_bus_socket',
+        '/var/run/dbus/system_bus_socket',
+    ] as $socket) {
+        if (is_file($socket)) {
+            $env['DBUS_SESSION_BUS_ADDRESS'] = 'unix:path=' . $socket;
+            break;
+        }
+    }
+
+    $xdg = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'pamantau-xdg-runtime';
+    if (!is_dir($xdg)) {
+        @mkdir($xdg, 0700, true);
+    }
+    if (is_dir($xdg) && is_writable($xdg)) {
+        $env['XDG_RUNTIME_DIR'] = $xdg;
+    }
+
+    $home = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'pamantau-home';
+    if (!is_dir($home)) {
+        @mkdir($home, 0700, true);
+    }
+    if (is_dir($home) && is_writable($home)) {
+        $env['HOME'] = $home;
+    }
+
+    if (!isset($env['LANG']) || trim((string) $env['LANG']) === '') {
+        $env['LANG'] = 'C.UTF-8';
+    }
+
+    return $env;
+}
+
+function pamantau_headless_stderr_summary(string $stderr): string
+{
+    $lines = preg_split('/\R/', $stderr) ?: [];
+    $kept = [];
+    foreach ($lines as $line) {
+        $line = trim((string) $line);
+        if ($line === '') {
+            continue;
+        }
+        if (preg_match('/dbus\/bus\.cc|Failed to connect to the bus|Unknown address type|ERROR:gpu_|WARNING:gpu_|viz_main_impl|DevTools listening/i', $line)) {
+            continue;
+        }
+        $kept[] = $line;
+    }
+    $summary = trim(implode(' | ', $kept));
+    if ($summary === '' && trim($stderr) !== '') {
+        return 'Chromium headless jalan, tetapi canvas belum diunggah (cek URL lokal / curl -k ke 127.0.0.1)';
+    }
+    return $summary;
 }
 
 /**
@@ -404,22 +373,9 @@ function pamantau_render_topology_headless(): array
         return $created;
     }
     $token = (string) $created['token'];
-    $windowsBrowser = pamantau_headless_browser_is_windows_exe($browser);
-    $profileRoot = $windowsBrowser && pamantau_is_wsl()
-        ? pamantau_headless_windows_temp_dir()
-        : sys_get_temp_dir();
-    $profile = $profileRoot . DIRECTORY_SEPARATOR . 'pamantau-headless-' . bin2hex(random_bytes(8));
+    $profile = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'pamantau-headless-' . bin2hex(random_bytes(8));
     if (!@mkdir($profile, 0700, true) && !is_dir($profile)) {
         return ['ok' => false, 'error' => 'Folder sementara renderer tidak dapat dibuat'];
-    }
-    $profileArg = $profile;
-    if ($windowsBrowser && pamantau_is_wsl()) {
-        $winProfile = pamantau_wsl_to_windows_path($profile);
-        if ($winProfile === '') {
-            pamantau_headless_remove_tree($profile);
-            return ['ok' => false, 'error' => 'Path profil Windows untuk renderer tidak valid'];
-        }
-        $profileArg = $winProfile;
     }
     $url = $baseUrl . 'index.php?headless_snapshot=' . rawurlencode($token);
     $command = [
@@ -427,19 +383,25 @@ function pamantau_render_topology_headless(): array
         '--headless=new',
         '--no-sandbox',
         '--disable-dev-shm-usage',
+        '--disable-gpu',
         '--disable-gpu-sandbox',
         '--use-angle=swiftshader',
         '--use-gl=angle',
         '--enable-unsafe-swiftshader',
         '--disable-extensions',
         '--disable-background-networking',
+        '--disable-background-timer-throttling',
+        '--disable-renderer-backgrounding',
+        '--disable-features=TranslateUI,AudioServiceOutOfProcess',
         '--no-first-run',
+        '--no-default-browser-check',
         '--hide-scrollbars',
         '--window-size=1920,1080',
-        '--virtual-time-budget=15000',
+        '--virtual-time-budget=60000',
         '--dump-dom',
-        '--user-data-dir=' . $profileArg,
+        '--user-data-dir=' . $profile,
         '--ignore-certificate-errors',
+        '--allow-insecure-localhost',
         $url,
     ];
     $descriptors = [
@@ -448,7 +410,14 @@ function pamantau_render_topology_headless(): array
         2 => ['pipe', 'w'],
     ];
     $pipes = [];
-    $process = @proc_open($command, $descriptors, $pipes, null, null, ['bypass_shell' => true]);
+    $process = @proc_open(
+        $command,
+        $descriptors,
+        $pipes,
+        null,
+        pamantau_headless_proc_env(),
+        ['bypass_shell' => true]
+    );
     if (!is_resource($process)) {
         pamantau_headless_remove_tree($profile);
         return ['ok' => false, 'error' => 'Browser headless gagal dijalankan'];
@@ -461,7 +430,6 @@ function pamantau_render_topology_headless(): array
     $result = null;
     try {
         while (microtime(true) < $deadline) {
-            // --dump-dom can be large; continuously drain both pipes.
             stream_get_contents($pipes[1]);
             $error .= (string) stream_get_contents($pipes[2]);
             if (strlen($error) > 4096) {
@@ -487,17 +455,30 @@ function pamantau_render_topology_headless(): array
             }
             usleep(150000);
         }
+        if ($result === null) {
+            $job = pamantau_headless_read_job();
+            if (($job['status'] ?? '') === 'complete' && is_file(pamantau_headless_output_path())) {
+                $binary = @file_get_contents(pamantau_headless_output_path());
+                if (is_string($binary)) {
+                    $valid = pamantau_validate_canvas_snapshot_binary($binary);
+                    if (!empty($valid['ok'])) {
+                        $result = array_merge($valid, ['binary' => $binary]);
+                    }
+                }
+            }
+        }
         if (is_array($result)) {
             return $result;
         }
-        $detail = trim($error);
+        $detail = pamantau_headless_stderr_summary($error);
         return [
             'ok' => false,
             'error' => 'Renderer browser tidak menghasilkan canvas baru'
-                . ($detail !== '' ? ': ' . substr($detail, 0, 300) : ''),
+                . ($detail !== '' ? ': ' . substr($detail, 0, 300) : '')
+                . ' [url=' . $baseUrl . ']',
         ];
     } finally {
-        pamantau_headless_terminate_process($process, $browser);
+        pamantau_headless_terminate_process($process);
         foreach ([1, 2] as $pipeNo) {
             if (isset($pipes[$pipeNo]) && is_resource($pipes[$pipeNo])) {
                 fclose($pipes[$pipeNo]);

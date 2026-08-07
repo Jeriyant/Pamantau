@@ -128,7 +128,7 @@ function pamantau_default_settings(): array
         'status_online_color' => '#39ff14',
         'status_offline_color' => '#ff3b5c',
         'status_unknown_color' => '#8090a8',
-        // Background worker (cli/background.php) — mirrors telegram_screenshot_enabled.
+        // Background worker (cli/background.php) — ON allows scheduled runs; OFF = no-op.
         'background_enabled' => false,
         // Telegram notifications (app-level only; not part of topology Save/Open).
         'telegram_enabled' => false,
@@ -246,10 +246,10 @@ function pamantau_normalize_settings(mixed $raw): array
         $out['snap_drag'] = false;
     }
     $out['layout_locked'] = (bool) $out['layout_locked'];
-    $validThemes = ['light', 'dark'];
+    $validThemes = ['light', 'dark', 'sand'];
     $theme = strtolower(trim((string) ($out['theme'] ?? 'light')));
-    if ($theme === 'midnight' || $theme === 'sand') {
-        $theme = $theme === 'midnight' ? 'dark' : 'light';
+    if ($theme === 'midnight') {
+        $theme = 'dark';
     }
     $out['theme'] = in_array($theme, $validThemes, true) ? $theme : $defaults['theme'];
     $uiLang = strtolower(trim((string) ($out['ui_language'] ?? 'id')));
@@ -268,6 +268,7 @@ function pamantau_normalize_settings(mixed $raw): array
     );
     unset($out['status_lamp_blink']);
 
+    $out['background_enabled'] = (bool) ($out['background_enabled'] ?? false);
     $out['telegram_enabled'] = (bool) ($out['telegram_enabled'] ?? false);
     $out['telegram_bot_token'] = is_string($out['telegram_bot_token'] ?? null)
         ? trim((string) $out['telegram_bot_token'])
@@ -292,8 +293,6 @@ function pamantau_normalize_settings(mixed $raw): array
         ? $tplDown
         : $defaults['telegram_tpl_down'];
     $out['telegram_screenshot_enabled'] = (bool) ($out['telegram_screenshot_enabled'] ?? false);
-    // Worker gate follows scheduled screenshot toggle (no separate Background UI).
-    $out['background_enabled'] = $out['telegram_screenshot_enabled'];
     $shotFmt = strtolower(trim((string) ($out['telegram_screenshot_format'] ?? 'png')));
     $out['telegram_screenshot_format'] = $shotFmt === 'jpg' || $shotFmt === 'jpeg' ? 'jpg' : 'png';
     $shotMode = strtolower(trim((string) ($out['telegram_screenshot_schedule_mode'] ?? '')));

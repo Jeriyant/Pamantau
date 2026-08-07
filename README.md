@@ -4,7 +4,7 @@ Monitor topologi jaringan langsung (PHP + vanilla JS).
 
 ## Versi
 
-Sumber versi: `version.json` (saat ini **1.7.5**).
+Sumber versi: `version.json` (saat ini **1.6.1**).
 
 ## Update dari GitHub (seperti FO-Simulator)
 
@@ -16,52 +16,13 @@ Sumber versi: `version.json` (saat ini **1.7.5**).
 
 Server Linux membutuhkan PHP `exec` + `bash` untuk `update.php` / `update.sh`. Folder `database/` dan file topology `*.json` di root **dipertahankan** saat update.
 
-## Screenshot terjadwal (Debian/Ubuntu)
+## Screenshot Linux & UI v1.6.1
 
-Target utama: server Linux Debian/Ubuntu (Apache + `www-data`).
-
-1. `sudo apt install chromium php-cli cron`
-2. Buka dashboard sekali agar URL lokal renderer tersimpan
-3. Satu kali: `sudo bash cli/setup-cron-access.sh`
-4. Di **Telegram Screenshot**: sakelar ON → **Simpan** (memasang root cron)
-
-Worker memakai Chromium/Chrome native di server. Override path dengan env `PAMANTAU_BROWSER_PATH` bila perlu.
-
-## Screenshot modal & syarat server v1.7.5
-
-- Modal Telegram Screenshot lebih lebar (~860px).
-- Hint setup cron tanpa error sudo mentah; format perintah lebih jelas.
-- Semua item panel Syarat server punya hint status di bawahnya.
-
-## Save, screenshot DPI & cleanup v1.7.4
-
-- Screenshot Telegram (uji kirim + terjadwal) diekspor ~300 DPI (skala 3.125×) untuk PNG dan JPG.
-- Hapus aset PNG perangkat yang tidak terpakai (UI memakai SVG).
-- **Simpan** ke server dan **Simpan sebagai** (ekspor perangkat) tetap seperti di catatan di bawah.
-
-## Telegram screenshot & preview v1.7.3
-
-- Target headless: Chromium/Chrome native di Debian/Ubuntu (bukan WSL/Windows).
-- Modal Telegram Screenshot: status cron + panel cek syarat server (cron, akses sudo, PHP CLI, Chromium, URL renderer, Telegram).
-- Modal lebih lebar; teks bantuan panjang diganti status ringkas.
-- Pratinjau pesan live di modal Telegram Online/Offline.
-
-## Save & toast v1.7.2
-
-- Toast notifikasi tampil 5 detik.
-- Pesan Open lebih jelas bila file JSON kosong/rusak.
-- **Simpan** menulis topologi ke penyimpanan server (`database/pamantau.json` via `replace_topology`), bukan ke file lokal pengguna.
-- **Simpan sebagai** mengekspor JSON topologi ke perangkat (File System Access / unduh bila `createWritable` diblokir).
-- **Buka** tetap mengimpor JSON dari perangkat lokal ke database server.
-
-## Auth, screenshot & canvas v1.7.0
-
-- Lupa Password memakai recovery key `database/app.key` (bisa reset username + password).
-- Tema Sand dihapus; hanya Light dan Dark.
-- Sakelar Background digabung ke **Aktifkan screenshot terjadwal**; cron root dipasang/dihapus otomatis di Linux (Debian/Ubuntu via `cli/cronctl.sh`).
-- Interval screenshot minimal 1 menit.
-- Worker headless memakai Chromium/Chrome native di server Linux (`sudo apt install chromium`).
-- Ukuran teks label perangkat di canvas diperbesar.
+- Interval screenshot terjadwal minimal **1 menit**.
+- Label perangkat di canvas **18px**.
+- “Terakhir Dikirim” format WIB mudah dibaca, teks hijau tebal.
+- Headless Chromium untuk Debian/Ubuntu server (env D-Bus, path `/usr/bin/chromium`, budget render lebih panjang).
+- Menyimpan screenshot ON ikut mengaktifkan sakelar Background agar worker CLI tidak di-skip.
 
 ## Mobile zoom & language v1.6.0
 
@@ -96,7 +57,7 @@ Worker memakai Chromium/Chrome native di server. Override path dengan env `PAMAN
 - Scan port otomatis memiliki jadwal terpisah setiap 5 menit, timeout 350 ms,
   dan memproses 16–32 perangkat paralel (default 24).
 - Service terakhir tetap tersimpan saat perangkat offline.
-- Screenshot Telegram terjadwal menjalankan Chromium/Chrome headless di server Linux dan
+- Screenshot Telegram terjadwal menjalankan Chrome/Edge headless sendiri dan
   memakai fungsi render canvas yang sama dengan dashboard (tema, grid, ikon,
   label, koneksi, posisi, dan status). Setiap jadwal mengambil data terbaru;
   cache lama dan renderer server tidak dipakai sebagai fallback.

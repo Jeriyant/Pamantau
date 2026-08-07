@@ -126,98 +126,6 @@ function pamantau_auth_clear_failures(): void
     pamantau_auth_attempts_save($attempts);
 }
 
-function pamantau_app_key_path(): string
-{
-    return PAMANTAU_DB_DIR . '/app.key';
-}
-
-function pamantau_app_key_generate(): string
-{
-    return bin2hex(random_bytes(32));
-}
-
-function pamantau_app_key_write(string $key): bool
-{
-    if (!is_dir(PAMANTAU_DB_DIR)) {
-        mkdir(PAMANTAU_DB_DIR, 0775, true);
-    }
-
-    $path = pamantau_app_key_path();
-    $fp = fopen($path, 'cb');
-    if ($fp === false) {
-        return false;
-    }
-
-    flock($fp, LOCK_EX);
-    ftruncate($fp, 0);
-    rewind($fp);
-    $ok = fwrite($fp, $key) !== false;
-    fflush($fp);
-    flock($fp, LOCK_UN);
-    fclose($fp);
-
-    if ($ok) {
-        @chmod($path, 0600);
-    }
-
-    return $ok;
-}
-
-function pamantau_app_key_read(): string
-{
-    $path = pamantau_app_key_path();
-    if (!is_file($path)) {
-        return '';
-    }
-
-    $raw = @file_get_contents($path);
-    if ($raw === false) {
-        return '';
-    }
-
-    return trim($raw);
-}
-
-function pamantau_app_key_ensure(): string
-{
-    $existing = pamantau_app_key_read();
-    if ($existing !== '') {
-        return $existing;
-    }
-
-    $key = pamantau_app_key_generate();
-    if (!pamantau_app_key_write($key)) {
-        return '';
-    }
-
-    return $key;
-}
-
-function pamantau_app_key_verify(string $candidate): bool
-{
-    $stored = pamantau_app_key_ensure();
-    if ($stored === '') {
-        return false;
-    }
-
-    $candidate = trim($candidate);
-    if ($candidate === '' || strlen($candidate) !== strlen($stored)) {
-        return false;
-    }
-
-    return hash_equals($stored, $candidate);
-}
-
-function pamantau_app_key_rotate(): string
-{
-    $key = pamantau_app_key_generate();
-    if (!pamantau_app_key_write($key)) {
-        return '';
-    }
-
-    return $key;
-}
-
 function pamantau_auth_ensure_bootstrap(): void
 {
     $store = pamantau_load_store();
@@ -225,15 +133,15 @@ function pamantau_auth_ensure_bootstrap(): void
     $username = trim((string) ($auth['username'] ?? ''));
     $hash = trim((string) ($auth['password_hash'] ?? ''));
 
-    if ($username === '' || $hash === '') {
-        $store['auth'] = [
-            'username' => 'admin',
-            'password_hash' => password_hash('pamantau', PASSWORD_DEFAULT),
-        ];
-        pamantau_save_store($store);
+    if ($username !== '' && $hash !== '') {
+        return;
     }
 
-    pamantau_app_key_ensure();
+    $store['auth'] = [
+        'username' => 'admin',
+        'password_hash' => password_hash('pamantau', PASSWORD_DEFAULT),
+    ];
+    pamantau_save_store($store);
 }
 
 function pamantau_auth_verify(string $user, string $pass): bool

@@ -34,3 +34,7 @@ Pamantau-Portable-*.zip
 
 # Local production patch folders (optional)
 patches/
+
+# Local version snapshots used for restore
+pamantau-v1.6.0/
+

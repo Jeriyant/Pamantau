@@ -4,10 +4,9 @@ declare(strict_types=1);
 require_once __DIR__ . '/headless_snapshot.php';
 
 const PAMANTAU_CANVAS_SNAPSHOT_MAX_BYTES = 9 * 1048576;
-/** Align with client Telegram 300 DPI export caps (assets/js/app.js). */
 const PAMANTAU_CANVAS_SNAPSHOT_MAX_WIDTH = 4000;
 const PAMANTAU_CANVAS_SNAPSHOT_MAX_HEIGHT = 3000;
-const PAMANTAU_CANVAS_SNAPSHOT_MAX_PIXELS = 12000000;
+const PAMANTAU_CANVAS_SNAPSHOT_MAX_PIXELS = 10000000;
 
 /** Parse a php.ini size string to bytes (0 if unknown/unlimited). */
 function pamantau_ini_bytes(string $value): int
@@ -174,9 +173,8 @@ function pamantau_telegram_send_snapshot_binary(
 }
 
 /**
- * Render a new canvas via server Chromium/Chrome headless for every scheduled
- * send. No GD/cache fallback is allowed because it can be stale or differ from
- * the dashboard.
+ * Render a new canvas in Chrome/Edge for every scheduled send. No GD/cache
+ * fallback is allowed because it can be stale or differ from the dashboard.
  *
  * @return array{ok:bool,error?:string,filename?:string,source?:string}
  */
