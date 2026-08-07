@@ -4,7 +4,7 @@ Monitor topologi jaringan langsung (PHP + vanilla JS).
 
 ## Versi
 
-Sumber versi: `version.json` (saat ini **1.7.3**).
+Sumber versi: `version.json` (saat ini **1.7.4**).
 
 ## Update dari GitHub (seperti FO-Simulator)
 
@@ -26,6 +26,12 @@ Target utama: server Linux Debian/Ubuntu (Apache + `www-data`).
 4. Di **Telegram Screenshot**: sakelar ON → **Simpan** (memasang root cron)
 
 Worker memakai Chromium/Chrome native di server. Override path dengan env `PAMANTAU_BROWSER_PATH` bila perlu.
+
+## Save, screenshot DPI & cleanup v1.7.4
+
+- Screenshot Telegram (uji kirim + terjadwal) diekspor ~300 DPI (skala 3.125×) untuk PNG dan JPG.
+- Hapus aset PNG perangkat yang tidak terpakai (UI memakai SVG).
+- **Simpan** ke server dan **Simpan sebagai** (ekspor perangkat) tetap seperti di catatan di bawah.
 
 ## Telegram screenshot & preview v1.7.3
 

@@ -34,7 +34,7 @@ $pamantauAuth = $pamantauHeadlessMode
   <link rel="stylesheet" href="assets/css/update.css?v=<?= (int) @filemtime(__DIR__ . '/assets/css/update.css') ?>" />
 <?php
   $pamantauVersionFile = __DIR__ . '/version.json';
-  $pamantauVersion = '1.7.3';
+  $pamantauVersion = '1.7.4';
   if (is_file($pamantauVersionFile)) {
     $vj = json_decode((string) @file_get_contents($pamantauVersionFile), true);
     if (is_array($vj) && !empty($vj['version'])) {

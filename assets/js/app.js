@@ -9588,7 +9588,7 @@ ${periodHtml}
 
   function syncDocLabel() {
     const name = projectDisplayName();
-    // "Saved" hanya jika sudah ada file (Save/Open) dan belum ada perubahan.
+    // "Saved" when Simpan (server) or Simpan sebagai (export) has associated a name and no pending edits.
     const hasFile = !!state.doc.name;
     const saved = hasFile && !state.docDirty;
     if (el.docLabel) {
@@ -9648,10 +9648,6 @@ ${periodHtml}
     const fileBase = sanitizeProjectFileBase(state.doc.name);
     const titleBase = currentProjectTitleBase();
     return !!fileBase && fileBase === titleBase;
-  }
-
-  function saveActsAsSaveAs() {
-    return !projectTitleMatchesAssociatedFile();
   }
 
   function commitProjectTitleFromInput() {
@@ -9971,16 +9967,31 @@ ${periodHtml}
     c.restore();
   }
 
-  function renderTopologyCanvas({ pixelRatio = 2, background = null } = {}) {
+  // Telegram screenshots: print-quality density (300 DPI vs CSS reference 96 DPI).
+  const TELEGRAM_SNAPSHOT_DPI = 300;
+  const TELEGRAM_SNAPSHOT_CSS_DPI = 96;
+  const TELEGRAM_SNAPSHOT_PIXEL_RATIO = TELEGRAM_SNAPSHOT_DPI / TELEGRAM_SNAPSHOT_CSS_DPI; // 3.125
+  // Keep within server validate caps (includes/topology_snapshot.php).
+  const TELEGRAM_SNAPSHOT_MAX_WIDTH = 4000;
+  const TELEGRAM_SNAPSHOT_MAX_HEIGHT = 3000;
+
+  function renderTopologyCanvas({
+    pixelRatio = 2,
+    background = null,
+    maxWidth = 3600,
+    maxHeight = 2700,
+  } = {}) {
     const box = deviceWorldBounds(48);
+    const capW = Math.max(1, Math.floor(Number(maxWidth) || 3600));
+    const capH = Math.max(1, Math.floor(Number(maxHeight) || 2700));
     const renderRatio = Math.min(
       Math.max(0.01, Number(pixelRatio) || 2),
-      3600 / Math.max(1, box.w),
-      2700 / Math.max(1, box.h),
+      capW / Math.max(1, box.w),
+      capH / Math.max(1, box.h),
     );
     const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.min(3600, Math.floor(box.w * renderRatio)));
-    canvas.height = Math.max(1, Math.min(2700, Math.floor(box.h * renderRatio)));
+    canvas.width = Math.max(1, Math.min(capW, Math.floor(box.w * renderRatio)));
+    canvas.height = Math.max(1, Math.min(capH, Math.floor(box.h * renderRatio)));
     const c = canvas.getContext('2d');
     c.setTransform(renderRatio, 0, 0, renderRatio, 0, 0);
     paintTopologyCanvasBackground(c, box.w, box.h, background);
@@ -10046,7 +10057,9 @@ ${periodHtml}
       latency: d.latency,
     }));
     const source = JSON.stringify({
-      renderer: 2,
+      renderer: 3,
+      dpi: TELEGRAM_SNAPSHOT_DPI,
+      pixelRatio: TELEGRAM_SNAPSHOT_PIXEL_RATIO,
       format: format === 'jpg' ? 'jpg' : 'png',
       settings: {
         theme: settings.theme,
