@@ -6,7 +6,13 @@ set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 MARKER="# Pamantau-background"
-PHP_BIN="/usr/bin/php"
+if [ -x /usr/bin/php ]; then
+  PHP_BIN="/usr/bin/php"
+elif command -v php >/dev/null 2>&1; then
+  PHP_BIN="$(command -v php)"
+else
+  PHP_BIN="/usr/bin/php"
+fi
 WORKER="$APP_DIR/cli/background.php"
 LOG="$APP_DIR/database/background-cron.log"
 LINE="* * * * * $PHP_BIN $WORKER >> $LOG 2>&1"

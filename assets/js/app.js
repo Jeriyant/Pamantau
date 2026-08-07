@@ -396,14 +396,14 @@
     modalTgScreenshot: document.getElementById('modalTgScreenshot'),
     modalTgSettings: document.getElementById('modalTgSettings'),
     bgSchedHint: document.getElementById('tgShotSchedHint'),
-    bgCronHint: document.getElementById('bgCronHint'),
-    btnCopyBgCron: document.getElementById('btnCopyBgCron'),
     tgShotCronStatus: document.getElementById('tgShotCronStatus'),
-    tgShotCronNote: document.getElementById('tgShotCronNote'),
+    tgShotDepsList: document.getElementById('tgShotDepsList'),
     tgNotifyUp: document.getElementById('tgNotifyUp'),
     tgNotifyDown: document.getElementById('tgNotifyDown'),
     tgTplUpPreview: document.getElementById('tgTplUpPreview'),
     tgTplDownPreview: document.getElementById('tgTplDownPreview'),
+    tgMsgPreviewUp: document.getElementById('tgMsgPreviewUp'),
+    tgMsgPreviewDown: document.getElementById('tgMsgPreviewDown'),
     tgShotEnabled: document.getElementById('tgShotEnabled'),
     tgShotFormat: document.getElementById('tgShotFormat'),
     tgShotMode: document.getElementById('tgShotMode'),
@@ -1583,10 +1583,50 @@
   }
 
   function toast(msg) {
+    if (!el.toast) return;
     el.toast.textContent = msg;
     el.toast.classList.remove('hidden');
+    el.toast.setAttribute('title', t('toast.copy_hint'));
     clearTimeout(toast._t);
-    toast._t = setTimeout(() => el.toast.classList.add('hidden'), 5000);
+    const scheduleHide = () => {
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => {
+        if (toast._pinned) return;
+        el.toast.classList.add('hidden');
+      }, 5000);
+    };
+    toast._pinned = false;
+    scheduleHide();
+  }
+
+  if (el.toast) {
+    el.toast.addEventListener('mouseenter', () => {
+      toast._pinned = true;
+      clearTimeout(toast._t);
+    });
+    el.toast.addEventListener('mouseleave', () => {
+      toast._pinned = false;
+      clearTimeout(toast._t);
+      toast._t = setTimeout(() => el.toast.classList.add('hidden'), 5000);
+    });
+    el.toast.addEventListener('click', async () => {
+      const text = String(el.toast.textContent || '').trim();
+      if (!text || text === t('toast.copied')) return;
+      try {
+        await copyTextToClipboard(text);
+        const prev = text;
+        el.toast.textContent = t('toast.copied');
+        clearTimeout(toast._t);
+        toast._t = setTimeout(() => {
+          el.toast.textContent = prev;
+          toast._t = setTimeout(() => {
+            if (!toast._pinned) el.toast.classList.add('hidden');
+          }, 2500);
+        }, 900);
+      } catch (_) {
+        // Selection still works if clipboard API is blocked.
+      }
+    });
   }
 
   function cloneTopology() {
@@ -7360,16 +7400,16 @@
   }
 
   function syncTgShotSchedHintUi() {
-    if (!el.bgSchedHint || !el.tgShotEnabled) return;
-    el.bgSchedHint.classList.toggle('hidden', !el.tgShotEnabled.checked);
+    // Cron status stays visible so setup/deps remain clear even when the switch is OFF.
+    if (el.bgSchedHint) el.bgSchedHint.classList.remove('hidden');
   }
 
   function applyCronStatus(cron) {
     if (!cron || typeof cron !== 'object') return;
-    if (el.bgCronHint && cron.line) {
-      el.bgCronHint.textContent = String(cron.line);
-    }
     if (el.tgShotCronStatus) {
+      el.tgShotCronStatus.removeAttribute('data-i18n');
+      el.tgShotCronStatus.classList.toggle('is-ok', !!cron.installed);
+      el.tgShotCronStatus.classList.toggle('is-warn', !cron.installed);
       if (cron.installed) {
         el.tgShotCronStatus.textContent = cron.message || t('bg.cron_installed');
       } else if (cron.ok === false && cron.message) {
@@ -7378,10 +7418,41 @@
         el.tgShotCronStatus.textContent = t('bg.cron_missing');
       }
     }
-    if (el.tgShotCronNote) {
-      el.tgShotCronNote.textContent = cron.installed
-        ? t('bg.cron_installed')
-        : t('bg.cron_note');
+  }
+
+  function applyScreenshotDeps(deps) {
+    if (!el.tgShotDepsList) return;
+    const checks = Array.isArray(deps?.checks) ? deps.checks : [];
+    el.tgShotDepsList.replaceChildren();
+    if (!checks.length) {
+      const li = document.createElement('li');
+      li.className = 'is-warn';
+      li.textContent = t('tg.shot_deps_loading');
+      el.tgShotDepsList.appendChild(li);
+      return;
+    }
+    for (const check of checks) {
+      const id = String(check?.id || '');
+      const ok = !!check?.ok;
+      const detail = String(check?.detail || '').trim();
+      const li = document.createElement('li');
+      li.className = ok ? 'is-ok' : 'is-warn';
+      const mark = document.createElement('span');
+      mark.className = 'tg-dep-mark';
+      mark.textContent = ok ? '✓' : '✗';
+      mark.setAttribute('aria-hidden', 'true');
+      const label = document.createElement('span');
+      label.className = 'tg-dep-label';
+      const labelKey = id ? `tg.shot_dep_${id}` : '';
+      label.textContent = labelKey ? t(labelKey) : id;
+      li.append(mark, label);
+      if (detail) {
+        const detailEl = document.createElement('span');
+        detailEl.className = 'tg-dep-detail';
+        detailEl.textContent = detail;
+        li.appendChild(detailEl);
+      }
+      el.tgShotDepsList.appendChild(li);
     }
   }
 
@@ -7391,6 +7462,20 @@
       applyCronStatus(data.cron || {});
     } catch (_) {
       // Ignore — cron status is informational.
+    }
+  }
+
+  async function refreshTelegramScreenshotDeps() {
+    if (!el.tgShotDepsList) return;
+    el.tgShotDepsList.replaceChildren();
+    const loading = document.createElement('li');
+    loading.textContent = t('tg.shot_deps_loading');
+    el.tgShotDepsList.appendChild(loading);
+    try {
+      const data = await api('telegram_screenshot_deps');
+      applyScreenshotDeps(data.deps || {});
+    } catch (_) {
+      applyScreenshotDeps({ checks: [] });
     }
   }
 
@@ -7713,6 +7798,60 @@
     if (el.tgNotifyDown) el.tgNotifyDown.checked = s.telegram_notify_down !== false;
     if (el.tgTplUpPreview) el.tgTplUpPreview.value = s.telegram_tpl_up || DEFAULT_SETTINGS.telegram_tpl_up;
     if (el.tgTplDownPreview) el.tgTplDownPreview.value = s.telegram_tpl_down || DEFAULT_SETTINGS.telegram_tpl_down;
+    updateTgUpDownPreviews();
+  }
+
+  /** Same sample device as pamantau_telegram_test_transition fallback. */
+  const TG_UPDOWN_PREVIEW_SAMPLE = {
+    label: 'Contoh-Router',
+    ip: '192.168.1.1',
+    type: 'router',
+  };
+
+  /** Mirrors pamantau_telegram_render_template() in includes/telegram.php */
+  function renderTelegramTemplate(template, vars) {
+    const latency = vars.latency;
+    const latencyStr = (latency === null || latency === undefined || latency === '') ? '—' : String(latency);
+    const map = {
+      '{label}': String(vars.label ?? ''),
+      '{ip}': String(vars.ip ?? ''),
+      '{type}': String(vars.type ?? ''),
+      '{latency}': latencyStr,
+      '{time}': String(vars.time ?? ''),
+      '{status}': String(vars.status ?? ''),
+    };
+    return String(template || '').replace(/\{label\}|\{ip\}|\{type\}|\{latency\}|\{time\}|\{status\}/g, (m) => map[m] ?? m);
+  }
+
+  function formatTgPreviewTime(date = new Date()) {
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  }
+
+  function updateTgUpDownPreviews() {
+    const time = formatTgPreviewTime();
+    const upTpl = el.tgTplUpPreview
+      ? el.tgTplUpPreview.value
+      : (state.settings.telegram_tpl_up || DEFAULT_SETTINGS.telegram_tpl_up);
+    const downTpl = el.tgTplDownPreview
+      ? el.tgTplDownPreview.value
+      : (state.settings.telegram_tpl_down || DEFAULT_SETTINGS.telegram_tpl_down);
+    if (el.tgMsgPreviewUp) {
+      el.tgMsgPreviewUp.textContent = renderTelegramTemplate(upTpl, {
+        ...TG_UPDOWN_PREVIEW_SAMPLE,
+        latency: 12,
+        time,
+        status: 'online',
+      });
+    }
+    if (el.tgMsgPreviewDown) {
+      el.tgMsgPreviewDown.textContent = renderTelegramTemplate(downTpl, {
+        ...TG_UPDOWN_PREVIEW_SAMPLE,
+        latency: null,
+        time,
+        status: 'offline',
+      });
+    }
   }
 
   function syncTgShotScheduleFields() {
@@ -7722,6 +7861,28 @@
     el.tgShotFieldsInterval?.classList.toggle('hidden', mode !== 'interval');
     el.tgShotFieldsHourly?.classList.toggle('hidden', mode !== 'hourly');
     el.tgShotFieldsDaily?.classList.toggle('hidden', mode !== 'daily');
+  }
+
+  function formatDateTimeHuman(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    const dt = new Date(raw);
+    if (Number.isNaN(dt.getTime())) return raw;
+    const lang = normalizeUiLang(state.settings.ui_language) === 'en' ? 'en-GB' : 'id-ID';
+    const opts = {
+      timeZone: 'Asia/Jakarta',
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    };
+    let formatted = dt.toLocaleString(lang, opts);
+    if (lang === 'id-ID') {
+      formatted = formatted.replace(/\s+pukul\s+/i, ', ');
+    }
+    return `${formatted} WIB`;
   }
 
   function fillTgScreenshotForm() {
@@ -7747,11 +7908,16 @@
     syncTgShotScheduleFields();
     syncTgShotSchedHintUi();
     refreshBackgroundCronStatus();
+    refreshTelegramScreenshotDeps();
     if (el.tgShotLastHint) {
       const last = String(s.telegram_screenshot_last_at || '').trim();
-      el.tgShotLastHint.textContent = last
-        ? t('tg.shot_last', { at: last })
-        : t('tg.shot_last_none');
+      if (last) {
+        el.tgShotLastHint.removeAttribute('data-i18n');
+        el.tgShotLastHint.textContent = t('tg.shot_last', { at: formatDateTimeHuman(last) });
+      } else {
+        el.tgShotLastHint.setAttribute('data-i18n', 'tg.shot_last_none');
+        el.tgShotLastHint.textContent = t('tg.shot_last_none');
+      }
     }
   }
 
@@ -7813,6 +7979,9 @@
     const data = await api('save_settings', patch);
     applyTelegramSettingsResponse(data.settings || patch);
     if (data.cron) applyCronStatus(data.cron);
+    if (el.modalTgScreenshot && !el.modalTgScreenshot.classList.contains('hidden')) {
+      refreshTelegramScreenshotDeps();
+    }
     if (
       Object.prototype.hasOwnProperty.call(patch, 'telegram_screenshot_enabled')
       || Object.prototype.hasOwnProperty.call(patch, 'telegram_screenshot_format')
@@ -9905,7 +10074,7 @@ ${periodHtml}
     }
     return {
       source,
-      fingerprint: `canvas-v2-${(hash >>> 0).toString(16).padStart(8, '0')}-${source.length}`,
+      fingerprint: `canvas-v3-${(hash >>> 0).toString(16).padStart(8, '0')}-${source.length}`,
     };
   }
 
@@ -9931,13 +10100,18 @@ ${periodHtml}
 
   async function buildTelegramCanvasSnapshot(format = null) {
     const requested = format === 'jpg' ? 'jpg' : 'png';
-    let canvas = renderTopologyCanvas({ pixelRatio: 2 });
+    let canvas = renderTopologyCanvas({
+      pixelRatio: TELEGRAM_SNAPSHOT_PIXEL_RATIO,
+      maxWidth: TELEGRAM_SNAPSHOT_MAX_WIDTH,
+      maxHeight: TELEGRAM_SNAPSHOT_MAX_HEIGHT,
+    });
     const preferredUploadBytes = Math.min(
       7 * 1024 * 1024,
       Math.max(128 * 1024, Number(telegramCanvasUploadLimitBytes) || 1536 * 1024),
     );
     let actual = requested;
     let mime = requested === 'jpg' ? 'image/jpeg' : 'image/png';
+    // JPG quality stays high (~print); size fallbacks below may reduce quality/scale.
     let blob = await canvasToBlob(canvas, mime, requested === 'jpg' ? 0.92 : undefined);
 
     // Prefer the selected format, then progressively compress and resize.
@@ -10078,7 +10252,7 @@ ${periodHtml}
         const file = await handle.getFile();
         const data = parseTopologyFileText(await file.text(), file.name);
         await applyOpenedTopology(data, { name: file.name, handle });
-        toast(t('toast.opened', { name: file.name }));
+        toast(t('toast.opened_local', { name: file.name }));
         return;
       }
       el.importFile.click();
@@ -10122,18 +10296,42 @@ ${periodHtml}
     });
   }
 
-  async function saveTopologyFile({ saveAs = false } = {}) {
+  /** Persist current topology to app/server storage (database/pamantau.json). Never writes to the client device. */
+  async function saveTopologyToServer() {
     commitProjectTitleFromInput();
-    // Renamed project (title ≠ associated file base) → treat Save like Save as.
-    if (!saveAs && saveActsAsSaveAs()) saveAs = true;
+    try {
+      await persistTopologyToServer();
+      const suggested = suggestedSaveName();
+      // Keep an associated project name for the doc badge, but drop any local FS handle —
+      // Simpan is server-backed; local handles are only for Open / Simpan sebagai (export).
+      const name = (state.doc.name && projectTitleMatchesAssociatedFile())
+        ? state.doc.name
+        : suggested;
+      const title = sanitizeProjectFileBase(name) || state.doc.title || '';
+      await rememberDoc({
+        name,
+        handle: null,
+        title,
+      });
+      markDocClean();
+      toast(t('toast.saved_server', { name }));
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+      toast(t('toast.save_fail', { err: err.message || err }));
+    }
+  }
+
+  /** Export topology JSON to the user's device (File System Access or download). */
+  async function exportTopologyFile() {
+    commitProjectTitleFromInput();
     const payload = await fullProjectPayload();
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const suggested = suggestedSaveName();
 
     try {
-      // Saving a local project never replaces server-owned monitoring data.
+      // Export never replaces server-owned monitoring data (topology-only payload).
 
-      if (!saveAs && state.doc.handle) {
+      if (state.doc.handle) {
         const ok = await ensureFileHandlePermission(state.doc.handle, 'readwrite');
         if (ok) {
           try {
@@ -10145,7 +10343,7 @@ ${periodHtml}
               title: state.doc.title || sanitizeProjectFileBase(name),
             });
             markDocClean();
-            toast(t('toast.saved', { name }));
+            toast(t('toast.saved_export', { name }));
             return;
           } catch (writeErr) {
             if (!isFileHandleDeniedError(writeErr)) throw writeErr;
@@ -10174,7 +10372,7 @@ ${periodHtml}
               title: sanitizeProjectFileBase(handle.name) || state.doc.title || '',
             });
             markDocClean();
-            toast(t('toast.saved', { name: handle.name }));
+            toast(t('toast.saved_export', { name: handle.name }));
             return;
           } catch (writeErr) {
             if (!isFileHandleDeniedError(writeErr)) throw writeErr;
@@ -10191,17 +10389,23 @@ ${periodHtml}
         }
       }
 
-      // Fallback: force download (works in restricted browsers / embeds).
-      await finishSaveAsDownload(blob, (!saveAs && state.doc.name) ? state.doc.name : suggested);
+      await finishSaveAsDownload(blob, suggested);
     } catch (err) {
       if (err && err.name === 'AbortError') return;
-      // Last resort: still try download so the user does not lose work.
       try {
         await finishSaveAsDownload(blob, suggested);
       } catch (_) {
         toast(t('toast.save_fail', { err: err.message || err }));
       }
     }
+  }
+
+  async function saveTopologyFile({ saveAs = false } = {}) {
+    if (saveAs) {
+      await exportTopologyFile();
+      return;
+    }
+    await saveTopologyToServer();
   }
 
   function exportTopologyImage(format) {
@@ -10497,7 +10701,7 @@ ${periodHtml}
     try {
       const data = parseTopologyFileText(await file.text(), file.name);
       await applyOpenedTopology(data, { name: file.name, handle: null });
-      toast(t('toast.opened', { name: file.name }));
+      toast(t('toast.opened_local', { name: file.name }));
     } catch (err) {
       toast(t('toast.open_fail', { err: err.message }));
     }
@@ -10804,6 +11008,11 @@ ${periodHtml}
   document.getElementById('btnCloseTgScreenshot')?.addEventListener('click', () => closeTgScreenshot());
   document.getElementById('btnCloseTgSettings')?.addEventListener('click', () => closeTgSettings());
 
+  el.tgTplUpPreview?.addEventListener('input', updateTgUpDownPreviews);
+  el.tgTplUpPreview?.addEventListener('change', updateTgUpDownPreviews);
+  el.tgTplDownPreview?.addEventListener('input', updateTgUpDownPreviews);
+  el.tgTplDownPreview?.addEventListener('change', updateTgUpDownPreviews);
+
   document.getElementById('btnSaveTgUpDown')?.addEventListener('click', async () => {
     try {
       await saveTelegramPatch({
@@ -10873,19 +11082,6 @@ ${periodHtml}
 
   el.tgShotMode?.addEventListener('change', syncTgShotScheduleFields);
   el.tgShotEnabled?.addEventListener('change', () => syncTgShotSchedHintUi());
-
-  if (el.btnCopyBgCron) {
-    el.btnCopyBgCron.addEventListener('click', async () => {
-      const line = (el.bgCronHint && el.bgCronHint.textContent || '').trim();
-      if (!line) return;
-      try {
-        await copyTextToClipboard(line);
-        toast(t('toast.copied'));
-      } catch (_) {
-        toast(t('toast.clipboard_denied'));
-      }
-    });
-  }
 
   document.getElementById('btnTgTestShot')?.addEventListener('click', async () => {
     try {

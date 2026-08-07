@@ -442,6 +442,13 @@ try {
             ]);
         }
 
+        case 'telegram_screenshot_deps': {
+            json_out([
+                'ok' => true,
+                'deps' => pamantau_telegram_screenshot_deps(),
+            ]);
+        }
+
         case 'reset_settings': {
             $settings = pamantau_default_settings();
             pamantau_write('settings', $settings);

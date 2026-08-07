@@ -183,40 +183,117 @@ function pamantau_headless_browser_candidate_usable(string $candidate): bool
     return is_executable($candidate);
 }
 
-function pamantau_headless_browser_executable(): string
+/**
+ * Native Linux browser paths (Debian/Ubuntu first). Absolute paths before PATH
+ * lookup so root cron with a short PATH still finds Chromium.
+ *
+ * @return list<string>
+ */
+function pamantau_headless_linux_browser_candidates(): array
 {
+    $candidates = [];
     $configured = trim((string) getenv('PAMANTAU_BROWSER_PATH'));
-    $candidates = $configured !== '' ? [$configured] : [];
-    if (PHP_OS_FAMILY === 'Windows') {
-        $candidates = array_merge($candidates, [
-            'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
-            'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
-            'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
-            'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
-        ]);
-    } else {
-        foreach (['chromium', 'chromium-browser', 'google-chrome', 'google-chrome-stable', 'microsoft-edge'] as $name) {
-            $found = trim((string) @shell_exec('command -v ' . escapeshellarg($name) . ' 2>/dev/null'));
-            if ($found !== '') {
-                $candidates[] = $found;
-            }
-        }
-        // WSL cron runs Linux PHP but browsers are usually installed on Windows.
-        if (pamantau_is_wsl()) {
-            $candidates = array_merge($candidates, [
-                '/mnt/c/Program Files/Google/Chrome/Application/chrome.exe',
-                '/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe',
-                '/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
-                '/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe',
-            ]);
+    if ($configured !== '') {
+        $candidates[] = $configured;
+    }
+    $candidates = array_merge($candidates, [
+        '/usr/bin/chromium',
+        '/usr/bin/chromium-browser',
+        '/usr/bin/google-chrome-stable',
+        '/usr/bin/google-chrome',
+        '/usr/bin/microsoft-edge-stable',
+        '/usr/bin/microsoft-edge',
+        '/snap/bin/chromium',
+    ]);
+    foreach ([
+        'chromium',
+        'chromium-browser',
+        'google-chrome-stable',
+        'google-chrome',
+        'microsoft-edge-stable',
+        'microsoft-edge',
+    ] as $name) {
+        $found = trim((string) @shell_exec('command -v ' . escapeshellarg($name) . ' 2>/dev/null'));
+        if ($found !== '') {
+            $candidates[] = $found;
         }
     }
+    return array_values(array_unique($candidates));
+}
+
+/**
+ * @return list<string>
+ */
+function pamantau_headless_windows_browser_candidates(): array
+{
+    $candidates = [];
+    $configured = trim((string) getenv('PAMANTAU_BROWSER_PATH'));
+    if ($configured !== '') {
+        $candidates[] = $configured;
+    }
+    return array_merge($candidates, [
+        'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+        'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+        'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe',
+    ]);
+}
+
+/**
+ * WSL-only fallback when no native Linux Chromium/Chrome is installed.
+ *
+ * @return list<string>
+ */
+function pamantau_headless_wsl_windows_browser_candidates(): array
+{
+    return [
+        '/mnt/c/Program Files/Google/Chrome/Application/chrome.exe',
+        '/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+        '/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe',
+        '/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+    ];
+}
+
+function pamantau_headless_pick_browser(array $candidates): string
+{
     foreach ($candidates as $candidate) {
+        if (!is_string($candidate)) {
+            continue;
+        }
         if (pamantau_headless_browser_candidate_usable($candidate)) {
             return $candidate;
         }
     }
     return '';
+}
+
+function pamantau_headless_browser_executable(): string
+{
+    if (PHP_OS_FAMILY === 'Windows') {
+        return pamantau_headless_pick_browser(pamantau_headless_windows_browser_candidates());
+    }
+
+    // Primary target: native Linux (Debian/Ubuntu).
+    $linux = pamantau_headless_pick_browser(pamantau_headless_linux_browser_candidates());
+    if ($linux !== '') {
+        return $linux;
+    }
+
+    // Optional last resort only on WSL when apt Chromium is missing.
+    if (pamantau_is_wsl()) {
+        return pamantau_headless_pick_browser(pamantau_headless_wsl_windows_browser_candidates());
+    }
+
+    return '';
+}
+
+function pamantau_headless_browser_missing_hint(): string
+{
+    if (PHP_OS_FAMILY === 'Windows') {
+        return 'Google Chrome atau Microsoft Edge tidak ditemukan untuk renderer background';
+    }
+    return 'Chromium/Chrome tidak ditemukan di server. Di Debian/Ubuntu: sudo apt install chromium'
+        . ' (atau set PAMANTAU_BROWSER_PATH ke binary headless)';
 }
 
 function pamantau_headless_remove_tree(string $path): void
@@ -296,6 +373,10 @@ function pamantau_headless_terminate_process(mixed $process, string $browser = '
         if (is_resource($null)) {
             fclose($null);
         }
+    } elseif ($pid > 0 && function_exists('posix_kill')) {
+        // Chromium on Linux forks children; signal the process group when possible.
+        @posix_kill(-$pid, defined('SIGTERM') ? SIGTERM : 15);
+        @posix_kill($pid, defined('SIGTERM') ? SIGTERM : 15);
     }
     $status = proc_get_status($process);
     if (!empty($status['running'])) {
@@ -316,7 +397,7 @@ function pamantau_render_topology_headless(): array
     }
     $browser = pamantau_headless_browser_executable();
     if ($browser === '') {
-        return ['ok' => false, 'error' => 'Microsoft Edge/Google Chrome tidak ditemukan untuk renderer background'];
+        return ['ok' => false, 'error' => pamantau_headless_browser_missing_hint()];
     }
     $created = pamantau_headless_create_job();
     if (empty($created['ok'])) {
@@ -345,6 +426,7 @@ function pamantau_render_topology_headless(): array
         $browser,
         '--headless=new',
         '--no-sandbox',
+        '--disable-dev-shm-usage',
         '--disable-gpu-sandbox',
         '--use-angle=swiftshader',
         '--use-gl=angle',

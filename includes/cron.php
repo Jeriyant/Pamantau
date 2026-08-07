@@ -4,8 +4,8 @@ declare(strict_types=1);
 /**
  * Install / remove Pamantau background worker in the root crontab.
  *
- * Linux/WSL Apache usually runs as www-data. After one-time
- * `sudo bash cli/setup-cron-access.sh`, this module calls:
+ * Primary target: Linux Debian/Ubuntu with Apache/php-fpm as www-data.
+ * After one-time `sudo bash cli/setup-cron-access.sh`, this module calls:
  *   sudo -n cli/cronctl.sh on|off|status
  */
 
@@ -24,6 +24,25 @@ function pamantau_cron_linux_app_dir(): string
     return str_replace('\\', '/', $dir);
 }
 
+/** Prefer /usr/bin/php so Debian cron lines stay stable under Apache/php-fpm. */
+function pamantau_cron_php_bin(): string
+{
+    foreach ([
+        '/usr/bin/php',
+        '/usr/bin/php8.4',
+        '/usr/bin/php8.3',
+        '/usr/bin/php8.2',
+        '/usr/bin/php8.1',
+        '/usr/local/bin/php',
+    ] as $bin) {
+        if (is_file($bin) && is_executable($bin)) {
+            return $bin;
+        }
+    }
+    $found = trim((string) @shell_exec('command -v php 2>/dev/null'));
+    return $found !== '' ? $found : '/usr/bin/php';
+}
+
 function pamantau_cronctl_path(): string
 {
     return pamantau_cron_app_dir() . DIRECTORY_SEPARATOR . 'cli' . DIRECTORY_SEPARATOR . 'cronctl.sh';
@@ -32,7 +51,8 @@ function pamantau_cronctl_path(): string
 function pamantau_cron_worker_line(): string
 {
     $app = pamantau_cron_linux_app_dir();
-    return '* * * * * /usr/bin/php ' . $app . '/cli/background.php >> ' . $app . '/database/background-cron.log 2>&1';
+    $php = pamantau_cron_php_bin();
+    return '* * * * * ' . $php . ' ' . $app . '/cli/background.php >> ' . $app . '/database/background-cron.log 2>&1';
 }
 
 function pamantau_cron_marker_path(): string
@@ -185,6 +205,115 @@ function pamantau_background_cron_status(): array
             : ($run['stderr'] !== '' ? $run['stderr'] : 'Cron worker belum terpasang di root crontab'),
         'via' => (string) ($run['via'] ?? ''),
     ];
+}
+
+/**
+ * Dependency checks for scheduled Telegram screenshots (Debian/Linux first).
+ *
+ * @return array{ok:bool,checks:list<array{id:string,ok:bool,detail:string}>}
+ */
+function pamantau_telegram_screenshot_deps(): array
+{
+    require_once __DIR__ . '/headless_snapshot.php';
+
+    $checks = [];
+    $push = static function (string $id, bool $ok, string $detail = '') use (&$checks): void {
+        $checks[] = ['id' => $id, 'ok' => $ok, 'detail' => $detail];
+    };
+
+    $app = pamantau_cron_app_dir();
+    $cronctl = pamantau_cronctl_path();
+    $worker = $app . DIRECTORY_SEPARATOR . 'cli' . DIRECTORY_SEPARATOR . 'background.php';
+    $scriptsOk = is_file($cronctl) && is_file($worker);
+    $push(
+        'scripts',
+        $scriptsOk,
+        $scriptsOk ? '' : 'cli/cronctl.sh atau cli/background.php tidak ditemukan'
+    );
+
+    $shellOk = pamantau_cron_shell_available();
+    $push(
+        'shell',
+        $shellOk,
+        $shellOk ? '' : 'proc_open/exec dinonaktifkan di PHP'
+    );
+
+    $crontabBin = '';
+    foreach (['/usr/bin/crontab', '/bin/crontab'] as $bin) {
+        if (is_file($bin) && is_executable($bin)) {
+            $crontabBin = $bin;
+            break;
+        }
+    }
+    if ($crontabBin === '') {
+        $found = trim((string) @shell_exec('command -v crontab 2>/dev/null'));
+        if ($found !== '' && is_file($found)) {
+            $crontabBin = $found;
+        }
+    }
+    $push(
+        'cron',
+        $crontabBin !== '',
+        $crontabBin !== '' ? $crontabBin : 'sudo apt install cron'
+    );
+
+    $accessRun = pamantau_cronctl_exec('status');
+    $accessOk = !empty($accessRun['ok']);
+    $accessVia = (string) ($accessRun['via'] ?? '');
+    $push(
+        'cron_access',
+        $accessOk,
+        $accessOk
+            ? ($accessVia !== '' ? 'via ' . $accessVia : '')
+            : pamantau_cron_setup_hint()
+    );
+
+    $phpBin = pamantau_cron_php_bin();
+    $phpOk = $phpBin !== '' && is_file($phpBin) && is_executable($phpBin);
+    $push(
+        'php_cli',
+        $phpOk,
+        $phpOk ? $phpBin : 'sudo apt install php-cli'
+    );
+
+    $browser = pamantau_headless_browser_executable();
+    $browserOk = $browser !== '';
+    $push(
+        'chromium',
+        $browserOk,
+        $browserOk ? $browser : 'sudo apt install chromium'
+    );
+
+    $baseUrl = pamantau_headless_base_url();
+    $baseOk = $baseUrl !== '';
+    $push(
+        'base_url',
+        $baseOk,
+        $baseOk ? $baseUrl : 'Buka dashboard sekali di server lokal'
+    );
+
+    $settings = pamantau_normalize_settings(pamantau_read('settings', []));
+    $tgEnabled = !empty($settings['telegram_enabled']);
+    $tgToken = trim((string) ($settings['telegram_bot_token'] ?? ''));
+    $tgChat = trim((string) ($settings['telegram_chat_id'] ?? ''));
+    $tgOk = $tgEnabled && $tgToken !== '' && $tgChat !== '';
+    $tgDetail = '';
+    if (!$tgEnabled) {
+        $tgDetail = 'Aktifkan Telegram di Pengaturan Telegram';
+    } elseif ($tgToken === '' || $tgChat === '') {
+        $tgDetail = 'Isi Bot Token & Chat ID';
+    }
+    $push('telegram', $tgOk, $tgDetail);
+
+    $allOk = true;
+    foreach ($checks as $check) {
+        if (empty($check['ok'])) {
+            $allOk = false;
+            break;
+        }
+    }
+
+    return ['ok' => $allOk, 'checks' => $checks];
 }
 
 /**

@@ -10,14 +10,14 @@ declare(strict_types=1);
  * Screenshot-due checks still run when poll is skipped.
  * Uses an exclusive flock so overlapping scheduler runs do not parallelize.
  *
- * ── Linux cron ─────────────────────────────────────────────────────────
+ * ── Linux cron (Debian/Ubuntu) ─────────────────────────────────────────
  *   The worker self-paces both jobs. To honor a 30-second ping interval with
  *   cron, invoke it at second 0 and second 30:
  *   * * * * * /usr/bin/php /path/to/Pamantau/cli/background.php >/dev/null 2>&1
  *   * * * * * sleep 30; /usr/bin/php /path/to/Pamantau/cli/background.php >/dev/null 2>&1
  *
  * Note: Enabling "Aktifkan screenshot terjadwal" allows this worker to run;
- * you still need cron / Task Scheduler to invoke this script.
+ * root cron still needs to invoke this script (installed automatically on Save).
  */
 
 if (PHP_SAPI !== 'cli') {

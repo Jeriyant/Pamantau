@@ -1,6 +1,10 @@
 #!/bin/bash
-# One-time setup: allow Apache (www-data) to manage Pamantau root cron via sudo -n.
-# Run as root: sudo bash cli/setup-cron-access.sh
+# One-time setup for Debian/Ubuntu: allow Apache (www-data) to manage Pamantau
+# root cron via sudo -n. Run as root: sudo bash cli/setup-cron-access.sh
+#
+# Screenshot terjadwal juga membutuhkan Chromium di server:
+#   sudo apt install chromium
+# Opsional: sudo apt install php-cli cron
 
 set -euo pipefail
 
@@ -20,7 +24,7 @@ chmod 755 "$CRONCTL"
 CRONCTL_ESC="${CRONCTL// /\\ }"
 
 cat > "$SUDOERS_FILE" <<EOF
-# Pamantau — allow web server to install/remove root cron for background worke
+# Pamantau — allow web server to install/remove root cron for background worker
 www-data ALL=(root) NOPASSWD: $CRONCTL_ESC
 EOF
 chmod 440 "$SUDOERS_FILE"
@@ -43,3 +47,9 @@ fi
 
 echo "OK: sudoers installed at $SUDOERS_FILE"
 echo "Test: sudo -u www-data sudo -n $CRONCTL status"
+if ! command -v chromium >/dev/null 2>&1 \
+  && ! command -v chromium-browser >/dev/null 2>&1 \
+  && ! command -v google-chrome-stable >/dev/null 2>&1 \
+  && ! [ -x /usr/bin/chromium ]; then
+  echo "Note: install Chromium for scheduled screenshots: sudo apt install chromium"
+fi

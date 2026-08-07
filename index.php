@@ -34,7 +34,7 @@ $pamantauAuth = $pamantauHeadlessMode
   <link rel="stylesheet" href="assets/css/update.css?v=<?= (int) @filemtime(__DIR__ . '/assets/css/update.css') ?>" />
 <?php
   $pamantauVersionFile = __DIR__ . '/version.json';
-  $pamantauVersion = '1.7.2';
+  $pamantauVersion = '1.7.3';
   if (is_file($pamantauVersionFile)) {
     $vj = json_decode((string) @file_get_contents($pamantauVersionFile), true);
     if (is_array($vj) && !empty($vj['version'])) {
@@ -75,12 +75,12 @@ $pamantauAuth = $pamantauHeadlessMode
               </button>
               <div class="menu-sep"></div>
               <button type="button" data-file="save" role="menuitem">
-                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 4v10M8.5 10.5 12 14l3.5-3.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 18h14" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5.5 3.5h10.2L19.5 7.3V19.5a1 1 0 0 1-1 1h-13a1 1 0 0 1-1-1v-15a1 1 0 0 1 1-1Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8 3.5v4.5h7.5V3.5" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8 20.5v-5.5h8v5.5" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
                 <span data-i18n="file.save">Simpan</span>
               </button>
               <button type="button" data-file="save-as" role="menuitem">
                 <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 3.5h6.2L18.5 9v3" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M13 3.5V9h5.5" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M5.5 3.5v15A1.5 1.5 0 0 0 7 20h4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M14 14v7M11 18l3 3 3-3" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                <span data-i18n="file.save_as">Simpan sebagai</span>
+                <span data-i18n="file.save_as">Simpan sebagai (ekspor)</span>
               </button>
               <div class="menu-sep"></div>
               <button type="button" data-file="print" role="menuitem">
@@ -1301,6 +1301,16 @@ $pamantauAuth = $pamantauHeadlessMode
           <textarea id="tgTplDownPreview" rows="2" spellcheck="false"></textarea>
         </label>
         <p class="settings-desc" data-i18n="tg.placeholders">Placeholder: {label} {ip} {type} {latency} {time} {status}</p>
+        <div class="tg-updown-preview" aria-live="polite">
+          <div class="tg-updown-preview-block">
+            <span class="tg-updown-preview-label" data-i18n="tg.preview_up">Pratinjau Online</span>
+            <pre class="tg-updown-preview-text" id="tgMsgPreviewUp"></pre>
+          </div>
+          <div class="tg-updown-preview-block">
+            <span class="tg-updown-preview-label" data-i18n="tg.preview_down">Pratinjau Offline</span>
+            <pre class="tg-updown-preview-text" id="tgMsgPreviewDown"></pre>
+          </div>
+        </div>
         <div class="prop-actions scan-modal-actions">
           <button type="button" class="btn ghost" id="btnTgTestUp">
             <span class="btn-label" data-i18n="tg.test_up">Uji Online</span>
@@ -1325,7 +1335,6 @@ $pamantauAuth = $pamantauHeadlessMode
         </button>
       </header>
       <div class="settings-body tg-modal-body">
-        <p class="settings-desc" data-i18n="tg.shot_desc">Worker server (cli/background.php) merender canvas lewat Chrome/Edge headless pada setiap jadwal, lalu mengirim ke Telegram. Sakelar ini juga mengizinkan worker berjalan.</p>
         <label class="switch-row">
           <span class="switch-text" data-i18n="tg.shot_enabled">Aktifkan screenshot terjadwal</span>
           <span class="switch">
@@ -1333,15 +1342,17 @@ $pamantauAuth = $pamantauHeadlessMode
             <span class="slider" aria-hidden="true"></span>
           </span>
         </label>
-        <div id="tgShotSchedHint" class="bg-sched-hint hidden">
-          <div class="bg-sched-label" data-i18n="bg.cron_title">Cron otomatis</div>
-          <p class="settings-desc" id="tgShotCronStatus" data-i18n="bg.cron_auto_desc">Saat disimpan ON, baris cron root dipasang otomatis. OFF menghapusnya.</p>
-          <div class="bg-sched-cmd-row">
-            <code class="bg-sched-cmd" id="bgCronHint"></code>
-            <button type="button" class="btn ghost" id="btnCopyBgCron" data-i18n="bg.cron_copy">Salin</button>
-          </div>
-          <p class="settings-desc" id="tgShotCronNote" data-i18n="bg.cron_note">Cron dikelola otomatis lewat WSL root (Windows) atau crontab user PHP (Linux).</p>
+
+        <div id="tgShotSchedHint" class="bg-sched-hint">
+          <div class="bg-sched-label" data-i18n="bg.cron_title">Status cron</div>
+          <p class="settings-desc" id="tgShotCronStatus" data-i18n="bg.cron_auto_desc">Status cron akan ditampilkan di sini setelah dicek.</p>
         </div>
+
+        <div id="tgShotDeps" class="bg-sched-hint tg-shot-deps">
+          <div class="bg-sched-label" data-i18n="tg.shot_deps_title">Syarat server</div>
+          <ul class="tg-shot-deps-list" id="tgShotDepsList" aria-live="polite"></ul>
+        </div>
+
         <div class="settings-grid">
           <label><span data-i18n="tg.shot_format">Format</span>
             <select id="tgShotFormat">
@@ -1372,7 +1383,9 @@ $pamantauAuth = $pamantauHeadlessMode
             <input type="time" id="tgShotDailyTime" value="08:00" />
           </label>
         </div>
-        <p class="settings-desc" id="tgShotLastHint" data-i18n="tg.shot_last_none">Belum pernah dikirim.</p>
+
+        <p class="settings-desc tg-shot-last" id="tgShotLastHint" data-i18n="tg.shot_last_none">Belum pernah dikirim.</p>
+
         <div class="prop-actions scan-modal-actions">
           <button type="button" class="btn ghost" id="btnTgTestShot">
             <span class="btn-label" data-i18n="tg.test_shot">Uji kirim</span>
