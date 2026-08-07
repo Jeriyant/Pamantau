@@ -54,6 +54,94 @@ function pamantau_headless_base_url(): string
     return '';
 }
 
+/**
+ * Local renderer URL candidates. HTTPS on 127.0.0.1:443 often hits a different
+ * Apache vhost than the public site; plain HTTP on :80 usually works (backup VPS).
+ *
+ * @return list<string>
+ */
+function pamantau_headless_base_url_candidates(?string $primary = null): array
+{
+    $primary = trim((string) ($primary ?? pamantau_headless_base_url()));
+    if ($primary === '') {
+        return [];
+    }
+    $primary = rtrim($primary, '/') . '/';
+    $out = [];
+    $add = static function (string $url) use (&$out): void {
+        $url = rtrim($url, '/') . '/';
+        if ($url !== '/' && !in_array($url, $out, true)) {
+            $out[] = $url;
+        }
+    };
+
+    if (preg_match('#^(https?)://(127\.0\.0\.1|localhost)(?::(\d+))?(/.*)$#i', $primary, $m)) {
+        $scheme = strtolower($m[1]);
+        $host = $m[2];
+        $port = isset($m[3]) && $m[3] !== '' ? (int) $m[3] : ($scheme === 'https' ? 443 : 80);
+        $path = $m[4] !== '' ? $m[4] : '/';
+        if ($path[0] !== '/') {
+            $path = '/' . $path;
+        }
+        // Prefer HTTP loopback first when the saved URL is HTTPS.
+        if ($scheme === 'https' || $port === 443) {
+            $add('http://' . $host . $path);
+            $add('http://' . $host . ':80' . $path);
+        }
+        $add($primary);
+        if ($scheme === 'http' && ($port === 80 || $port === 443)) {
+            $add('http://' . $host . $path);
+        }
+        if ($scheme === 'https') {
+            $add('https://' . $host . ':443' . $path);
+        }
+    } else {
+        $add($primary);
+    }
+    return $out;
+}
+
+function pamantau_headless_probe_base_url(string $baseUrl): bool
+{
+    $url = rtrim($baseUrl, '/') . '/index.php';
+    $ctx = stream_context_create([
+        'http' => [
+            'method' => 'GET',
+            'timeout' => 4,
+            'ignore_errors' => true,
+            'follow_location' => 0,
+            'header' => "Connection: close\r\n",
+        ],
+        'ssl' => [
+            'verify_peer' => false,
+            'verify_peer_name' => false,
+            'allow_self_signed' => true,
+        ],
+    ]);
+    $headers = @get_headers($url, true, $ctx);
+    if (!is_array($headers) || empty($headers[0])) {
+        return false;
+    }
+    return (bool) preg_match('/HTTP\/\S+\s+(200|301|302|303|307|308)\b/i', (string) $headers[0]);
+}
+
+/**
+ * Pick a loopback base URL that Apache actually answers.
+ */
+function pamantau_headless_resolve_reachable_base_url(): string
+{
+    $candidates = pamantau_headless_base_url_candidates();
+    $tried = [];
+    foreach ($candidates as $candidate) {
+        $tried[] = $candidate;
+        if (pamantau_headless_probe_base_url($candidate)) {
+            return $candidate;
+        }
+    }
+    // Fall back to primary even if probe failed (probe may be disabled).
+    return $candidates[0] ?? '';
+}
+
 /** @return array<string,mixed> */
 function pamantau_headless_read_job(): array
 {
@@ -450,10 +538,16 @@ function pamantau_headless_resolve_browser_binary(string $browser): string
  */
 function pamantau_render_topology_headless(): array
 {
-    $baseUrl = pamantau_headless_base_url();
+    $baseUrl = pamantau_headless_resolve_reachable_base_url();
     if ($baseUrl === '') {
         return ['ok' => false, 'error' => 'URL lokal renderer belum tersedia; buka Pamantau sekali setelah server aktif'];
     }
+    // Remember the loopback URL that actually answered (often http://127.0.0.1/... not :443).
+    @file_put_contents(
+        pamantau_runtime_base_url_path(),
+        json_encode(['base_url' => $baseUrl, 'recorded_at' => date('c')], JSON_UNESCAPED_SLASHES),
+        LOCK_EX
+    );
     $browser = pamantau_headless_resolve_browser_binary(pamantau_headless_browser_executable());
     if ($browser === '') {
         return ['ok' => false, 'error' => pamantau_headless_browser_missing_hint()];
@@ -567,7 +661,8 @@ function pamantau_render_topology_headless(): array
         $detail = pamantau_headless_stderr_summary($error);
         if ($detail === '') {
             $detail = 'Chromium headless jalan, tetapi canvas belum diunggah'
-                . ' (cek: curl -k ke URL lokal; hapus database/background.lock jika stale)';
+                . ' (coba: curl -sI http://127.0.0.1/PAMANTAU/ dan set'
+                . ' --base-url=http://127.0.0.1/PAMANTAU/ via install.sh --repair)';
         }
         return [
             'ok' => false,

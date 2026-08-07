@@ -28,7 +28,7 @@ Cron harus milik `www-data`, bukan root (kalau root, file job headless jadi tida
 
 ## Versi
 
-Sumber versi: `version.json` (saat ini **1.6.2**).
+Sumber versi: `version.json` (saat ini **1.6.3**).
 
 ## Update dari GitHub (seperti FO-Simulator)
 
@@ -39,6 +39,12 @@ Sumber versi: `version.json` (saat ini **1.6.2**).
 5. Di aplikasi: **Pengaturan → Update → Cek update / Pasang update**
 
 Server Linux membutuhkan PHP `exec` + `bash` untuk `update.php` / `update.sh`. Folder `database/` dan file topology `*.json` di root **dipertahankan** saat update.
+
+## Headless HTTP fallback v1.6.3
+
+- Renderer headless otomatis mencoba `http://127.0.0.1/...` sebelum HTTPS `:443` (vhost SSL lokal sering gagal).
+- Mode headless tidak lagi redirect ke `login.php` saat API 401.
+- URL loopback yang berhasil di-probe disimpan ke `runtime-base-url.json`.
 
 ## Headless screenshot & install v1.6.2
 

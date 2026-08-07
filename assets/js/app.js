@@ -1145,7 +1145,9 @@
       data = {};
     }
     if (res.status === 401) {
-      window.location.href = 'login.php';
+      if (!HEADLESS_SNAPSHOT_MODE) {
+        window.location.href = 'login.php';
+      }
       throw new Error(data.error || 'Unauthorized');
     }
     if (!res.ok || data.ok === false) {
@@ -1176,7 +1178,9 @@
       data = {};
     }
     if (res.status === 401) {
-      window.location.href = 'login.php';
+      if (!HEADLESS_SNAPSHOT_MODE) {
+        window.location.href = 'login.php';
+      }
       throw new Error(data.error || 'Unauthorized');
     }
     if (!res.ok || data.ok === false) {
