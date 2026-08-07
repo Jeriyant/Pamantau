@@ -4,7 +4,7 @@ Monitor topologi jaringan langsung (PHP + vanilla JS).
 
 ## Versi
 
-Sumber versi: `version.json` (saat ini **1.7.0**).
+Sumber versi: `version.json` (saat ini **1.7.2**).
 
 ## Update dari GitHub (seperti FO-Simulator)
 
@@ -15,6 +15,12 @@ Sumber versi: `version.json` (saat ini **1.7.0**).
 5. Di aplikasi: **Pengaturan → Update → Cek update / Pasang update**
 
 Server Linux membutuhkan PHP `exec` + `bash` untuk `update.php` / `update.sh`. Folder `database/` dan file topology `*.json` di root **dipertahankan** saat update.
+
+## Save & toast v1.7.2
+
+- Toast notifikasi tampil 5 detik.
+- Pesan Open lebih jelas bila file JSON kosong/rusak.
+- Simpan / Simpan sebagai: jika browser memblokir `createWritable`, otomatis unduh file JSON.
 
 ## Auth, screenshot & canvas v1.7.0
 

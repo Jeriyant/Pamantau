@@ -1586,7 +1586,7 @@
     el.toast.textContent = msg;
     el.toast.classList.remove('hidden');
     clearTimeout(toast._t);
-    toast._t = setTimeout(() => el.toast.classList.add('hidden'), 3200);
+    toast._t = setTimeout(() => el.toast.classList.add('hidden'), 5000);
   }
 
   function cloneTopology() {
@@ -10023,6 +10023,20 @@ ${periodHtml}
     return data;
   }
 
+  function parseTopologyFileText(raw, fileName = '') {
+    const text = String(raw ?? '');
+    if (!text.trim()) {
+      const name = fileName ? ` (${fileName})` : '';
+      throw new Error(t('toast.open_empty', { name }) || `File JSON kosong${name}`);
+    }
+    try {
+      return JSON.parse(text);
+    } catch (err) {
+      const detail = err && err.message ? err.message : String(err);
+      throw new Error(t('toast.open_invalid', { err: detail }) || `JSON tidak valid: ${detail}`);
+    }
+  }
+
   async function applyOpenedTopology(data, meta = {}) {
     const devices = data.devices || [];
     const connections = data.connections || [];
@@ -10062,7 +10076,7 @@ ${periodHtml}
         // Request readwrite while we still have the picker user gesture
         await ensureFileHandlePermission(handle, 'readwrite');
         const file = await handle.getFile();
-        const data = JSON.parse(await file.text());
+        const data = parseTopologyFileText(await file.text(), file.name);
         await applyOpenedTopology(data, { name: file.name, handle });
         toast(t('toast.opened', { name: file.name }));
         return;
@@ -10078,6 +10092,27 @@ ${periodHtml}
     const writable = await handle.createWritable();
     await writable.write(blob);
     await writable.close();
+  }
+
+  function isFileHandleDeniedError(err) {
+    if (!err) return false;
+    const name = String(err.name || '');
+    const msg = String(err.message || err);
+    return name === 'NotAllowedError'
+      || name === 'SecurityError'
+      || /createWritable|not allowed by the user agent|NotAllowedError/i.test(msg);
+  }
+
+  async function finishSaveAsDownload(blob, filename) {
+    const name = filename || suggestedSaveName();
+    downloadBlob(blob, name);
+    await rememberDoc({
+      name,
+      handle: null,
+      title: sanitizeProjectFileBase(name) || state.doc.title || '',
+    });
+    markDocClean();
+    toast(t('toast.save_download_fallback', { name }));
   }
 
   async function persistTopologyToServer() {
@@ -10101,62 +10136,71 @@ ${periodHtml}
       if (!saveAs && state.doc.handle) {
         const ok = await ensureFileHandlePermission(state.doc.handle, 'readwrite');
         if (ok) {
-          await writeJsonToHandle(state.doc.handle, blob);
-          const name = state.doc.name || state.doc.handle.name || suggested;
-          await rememberDoc({
-            name,
-            handle: state.doc.handle,
-            title: state.doc.title || sanitizeProjectFileBase(name),
-          });
-          markDocClean();
-          toast(t('toast.saved', { name }));
-          return;
+          try {
+            await writeJsonToHandle(state.doc.handle, blob);
+            const name = state.doc.name || state.doc.handle.name || suggested;
+            await rememberDoc({
+              name,
+              handle: state.doc.handle,
+              title: state.doc.title || sanitizeProjectFileBase(name),
+            });
+            markDocClean();
+            toast(t('toast.saved', { name }));
+            return;
+          } catch (writeErr) {
+            if (!isFileHandleDeniedError(writeErr)) throw writeErr;
+            // Restored handle can report "granted" then still reject createWritable.
+            await rememberDoc({ handle: null });
+          }
         }
-        // Permission denied / unavailable — fall through to Save as picker
       }
 
+      // Some embeds (e.g. IDE Simple Browser) expose the picker but block createWritable.
+      // Prefer a fresh picker when available; on write denial, fall back to download.
       if (window.showSaveFilePicker) {
-        const handle = await window.showSaveFilePicker({
-          suggestedName: suggested,
-          types: [{
-            description: 'Pamantau Project',
-            accept: { 'application/json': ['.json'] },
-          }],
-        });
-        await writeJsonToHandle(handle, blob);
-        await rememberDoc({
-          name: handle.name,
-          handle,
-          title: sanitizeProjectFileBase(handle.name) || state.doc.title || '',
-        });
-        markDocClean();
-        toast(t('toast.saved', { name: handle.name }));
-        return;
+        try {
+          const handle = await window.showSaveFilePicker({
+            suggestedName: suggested,
+            types: [{
+              description: 'Pamantau Project',
+              accept: { 'application/json': ['.json'] },
+            }],
+          });
+          try {
+            await writeJsonToHandle(handle, blob);
+            await rememberDoc({
+              name: handle.name,
+              handle,
+              title: sanitizeProjectFileBase(handle.name) || state.doc.title || '',
+            });
+            markDocClean();
+            toast(t('toast.saved', { name: handle.name }));
+            return;
+          } catch (writeErr) {
+            if (!isFileHandleDeniedError(writeErr)) throw writeErr;
+            await rememberDoc({ handle: null });
+            await finishSaveAsDownload(blob, handle.name || suggested);
+            return;
+          }
+        } catch (pickerErr) {
+          if (pickerErr && pickerErr.name === 'AbortError') return;
+          // Picker itself blocked — fall through to download.
+          if (!isFileHandleDeniedError(pickerErr) && pickerErr.name !== 'SecurityError') {
+            throw pickerErr;
+          }
+        }
       }
 
-      // Fallback browser tanpa File System Access API
-      if (!saveAs && state.doc.name) {
-        downloadBlob(blob, state.doc.name);
-        await rememberDoc({
-          name: state.doc.name,
-          handle: null,
-          title: state.doc.title || sanitizeProjectFileBase(state.doc.name),
-        });
-        markDocClean();
-        toast(t('toast.redownload', { name: state.doc.name }));
-        return;
-      }
-      downloadBlob(blob, suggested);
-      await rememberDoc({
-        name: suggested,
-        handle: null,
-        title: sanitizeProjectFileBase(suggested) || state.doc.title || '',
-      });
-      markDocClean();
-      toast(t('toast.save_as_done'));
+      // Fallback: force download (works in restricted browsers / embeds).
+      await finishSaveAsDownload(blob, (!saveAs && state.doc.name) ? state.doc.name : suggested);
     } catch (err) {
       if (err && err.name === 'AbortError') return;
-      toast(t('toast.save_fail', { err: err.message || err }));
+      // Last resort: still try download so the user does not lose work.
+      try {
+        await finishSaveAsDownload(blob, suggested);
+      } catch (_) {
+        toast(t('toast.save_fail', { err: err.message || err }));
+      }
     }
   }
 
@@ -10451,7 +10495,7 @@ ${periodHtml}
     el.importFile.value = '';
     if (!file) return;
     try {
-      const data = JSON.parse(await file.text());
+      const data = parseTopologyFileText(await file.text(), file.name);
       await applyOpenedTopology(data, { name: file.name, handle: null });
       toast(t('toast.opened', { name: file.name }));
     } catch (err) {
