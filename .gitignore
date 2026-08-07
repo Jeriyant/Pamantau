@@ -31,3 +31,6 @@ dist-pack/
 pamantau-dist.zip
 # Legacy release archives may still exist locally after removing portable support.
 Pamantau-Portable-*.zip
+
+# Local production patch folders (optional)
+patches/

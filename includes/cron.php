@@ -133,7 +133,7 @@ function pamantau_cron_run_command(array $cmd): array
 function pamantau_cron_setup_hint(): string
 {
     $script = pamantau_cron_linux_app_dir() . '/cli/setup-cron-access.sh';
-    return 'Jalankan sekali sebagai root: sudo bash ' . $script;
+    return "Jalankan Perintah ini sekali sebagai root.\nsudo bash " . $script;
 }
 
 /**
@@ -177,11 +177,10 @@ function pamantau_cronctl_exec(string $action): array
         return $sudo;
     }
 
-    $err = trim($sudo['stderr'] . ' ' . $sudo['stdout']);
     return [
         'ok' => false,
         'stdout' => $sudo['stdout'],
-        'stderr' => pamantau_cron_setup_hint() . ($err !== '' ? ' (' . trim($err) . ')' : ''),
+        'stderr' => pamantau_cron_setup_hint(),
         'code' => (int) $sudo['code'],
         'via' => 'needs-setup',
     ];
@@ -222,20 +221,23 @@ function pamantau_telegram_screenshot_deps(): array
     };
 
     $app = pamantau_cron_app_dir();
+    $appLinux = pamantau_cron_linux_app_dir();
     $cronctl = pamantau_cronctl_path();
     $worker = $app . DIRECTORY_SEPARATOR . 'cli' . DIRECTORY_SEPARATOR . 'background.php';
     $scriptsOk = is_file($cronctl) && is_file($worker);
     $push(
         'scripts',
         $scriptsOk,
-        $scriptsOk ? '' : 'cli/cronctl.sh atau cli/background.php tidak ditemukan'
+        $scriptsOk
+            ? $appLinux . '/cli/background.php'
+            : 'cli/cronctl.sh atau cli/background.php tidak ditemukan'
     );
 
     $shellOk = pamantau_cron_shell_available();
     $push(
         'shell',
         $shellOk,
-        $shellOk ? '' : 'proc_open/exec dinonaktifkan di PHP'
+        $shellOk ? 'proc_open & exec aktif' : 'proc_open/exec dinonaktifkan di PHP'
     );
 
     $crontabBin = '';
@@ -264,7 +266,7 @@ function pamantau_telegram_screenshot_deps(): array
         'cron_access',
         $accessOk,
         $accessOk
-            ? ($accessVia !== '' ? 'via ' . $accessVia : '')
+            ? ($accessVia !== '' ? 'via ' . $accessVia : 'sudo -n cronctl siap')
             : pamantau_cron_setup_hint()
     );
 
@@ -297,10 +299,11 @@ function pamantau_telegram_screenshot_deps(): array
     $tgToken = trim((string) ($settings['telegram_bot_token'] ?? ''));
     $tgChat = trim((string) ($settings['telegram_chat_id'] ?? ''));
     $tgOk = $tgEnabled && $tgToken !== '' && $tgChat !== '';
-    $tgDetail = '';
-    if (!$tgEnabled) {
+    if ($tgOk) {
+        $tgDetail = 'Telegram aktif · Chat ID ' . $tgChat;
+    } elseif (!$tgEnabled) {
         $tgDetail = 'Aktifkan Telegram di Pengaturan Telegram';
-    } elseif ($tgToken === '' || $tgChat === '') {
+    } else {
         $tgDetail = 'Isi Bot Token & Chat ID';
     }
     $push('telegram', $tgOk, $tgDetail);
