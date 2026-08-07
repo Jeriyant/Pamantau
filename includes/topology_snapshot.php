@@ -239,6 +239,6 @@ function pamantau_telegram_screenshot_due(array $settings): bool
         return $lastTs === false ? $now >= $slot : ($now >= $slot && $lastTs < $slot);
     }
 
-    $every = max(5, (int) ($settings['telegram_screenshot_every_min'] ?? 30));
+    $every = max(1, (int) ($settings['telegram_screenshot_every_min'] ?? 30));
     return $lastTs === false || ($now - $lastTs) >= ($every * 60);
 }

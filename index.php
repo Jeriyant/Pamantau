@@ -34,7 +34,7 @@ $pamantauAuth = $pamantauHeadlessMode
   <link rel="stylesheet" href="assets/css/update.css?v=<?= (int) @filemtime(__DIR__ . '/assets/css/update.css') ?>" />
 <?php
   $pamantauVersionFile = __DIR__ . '/version.json';
-  $pamantauVersion = '1.6.0';
+  $pamantauVersion = '1.7.0';
   if (is_file($pamantauVersionFile)) {
     $vj = json_decode((string) @file_get_contents($pamantauVersionFile), true);
     if (is_array($vj) && !empty($vj['version'])) {
@@ -839,7 +839,6 @@ $pamantauAuth = $pamantauHeadlessMode
             <select id="setTheme">
               <option value="light" data-i18n="theme.light">Light</option>
               <option value="dark" data-i18n="theme.dark">Dark</option>
-              <option value="sand" data-i18n="theme.sand">Sand</option>
             </select>
           </label>
         </section>
@@ -927,6 +926,33 @@ $pamantauAuth = $pamantauHeadlessMode
             </div>
             <p class="account-status" id="accountStatus" role="status" aria-live="polite"></p>
           </div>
+
+          <div class="account-recovery" id="accountRecovery">
+            <div class="settings-subhead" data-i18n="auth.recovery_section">Recovery key</div>
+            <p class="settings-desc" data-i18n="auth.recovery_desc">Simpan isi database/app.key. Kunci ini dipakai untuk Lupa Password di halaman login.</p>
+            <label class="account-field">
+              <span data-i18n="auth.recovery_key">Recovery key (app.key)</span>
+              <div class="account-input-wrap">
+                <input type="password" id="accountRecoveryKey" readonly spellcheck="false" autocomplete="off" value="" />
+                <button type="button" class="account-visibility" id="btnRevealRecoveryKey" aria-label="Show" title="Show">
+                  <svg class="eye-on" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.7"/></svg>
+                  <svg class="eye-off" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 3l18 18M10.5 10.6A3 3 0 0 0 13.4 13.5M7.1 7.3C4.7 8.7 3 12 3 12s3.5 6.5 9.5 6.5c1.7 0 3.2-.4 4.5-1M16.8 16.2C19.2 14.8 21 12 21 12s-3.5-6.5-9.5-6.5c-.7 0-1.4.1-2 .2" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+                </button>
+              </div>
+              <small class="account-field-hint" id="accountRecoveryPath" data-i18n="auth.recovery_path">Lokasi file</small>
+            </label>
+            <div class="settings-actions account-actions">
+              <div class="settings-actions-left">
+                <button type="button" class="btn" id="btnCopyRecoveryKey">
+                  <span class="btn-label" data-i18n="auth.copy_recovery_key">Salin key</span>
+                </button>
+                <button type="button" class="btn ghost" id="btnRotateRecoveryKey">
+                  <span class="btn-label" data-i18n="auth.rotate_recovery_key">Buat key baru</span>
+                </button>
+              </div>
+              <p class="account-status" id="accountRecoveryStatus" role="status" aria-live="polite"></p>
+            </div>
+          </div>
         </section>
 
         <section class="settings-section" id="settingsUpdateSection">
@@ -1007,34 +1033,6 @@ $pamantauAuth = $pamantauHeadlessMode
             <label><span data-i18n="mon.port_concurrency">Perangkat paralel (16–32)</span>
               <input type="number" id="setPortScanConcurrency" min="16" max="32" step="1" />
             </label>
-          </div>
-        </section>
-
-        <section class="settings-section">
-          <?php
-            $pamantauBgWorker = realpath(__DIR__ . '/cli/background.php');
-            if ($pamantauBgWorker === false) {
-              $pamantauBgWorker = __DIR__ . DIRECTORY_SEPARATOR . 'cli' . DIRECTORY_SEPARATOR . 'background.php';
-            }
-            $pamantauCronCmd = '* * * * * /usr/bin/php ' . str_replace('\\', '/', $pamantauBgWorker) . ' >/dev/null 2>&1';
-          ?>
-          <h3 data-i18n="bg.section">Background</h3>
-          <p class="settings-desc" data-i18n="bg.desc">Izinkan worker server (cli/background.php) menjalankan poll &amp; notifikasi tanpa browser. Masih perlu cron di Linux.</p>
-          <label class="switch-row">
-            <span class="switch-text" data-i18n="bg.enabled">Jalankan di background</span>
-            <span class="switch">
-              <input type="checkbox" id="setBackgroundEnabled" role="switch" />
-              <span class="slider" aria-hidden="true"></span>
-            </span>
-          </label>
-          <div id="bgSchedHint" class="bg-sched-hint hidden" data-depends-on="background-enabled">
-            <div class="bg-sched-label" data-i18n="bg.cron_title">Pemasangan cron (Linux)</div>
-            <p class="settings-desc" data-i18n="bg.cron_steps">Edit crontab (crontab -e), lalu tambahkan baris berikut agar worker jalan setiap menit:</p>
-            <div class="bg-sched-cmd-row">
-              <code class="bg-sched-cmd" id="bgCronHint"><?= htmlspecialchars($pamantauCronCmd, ENT_QUOTES, 'UTF-8') ?></code>
-              <button type="button" class="btn ghost" id="btnCopyBgCron" data-i18n="bg.cron_copy">Salin</button>
-            </div>
-            <p class="settings-desc" data-i18n="bg.cron_note">Sakelar ON hanya mengizinkan worker; cron harus memanggil skrip.</p>
           </div>
         </section>
 
@@ -1231,7 +1229,7 @@ $pamantauAuth = $pamantauHeadlessMode
 
         <section class="settings-section">
           <h3 data-i18n="status.section">Status perangkat</h3>
-          <p class="settings-desc" data-i18n="status.desc">Warna status di kanvas: isi ubin ikon (tema Light), outline perangkat (tema Sand &amp; Dark).</p>
+          <p class="settings-desc" data-i18n="status.desc">Warna status di kanvas: isi ubin ikon (tema Light), outline perangkat (tema Dark).</p>
           <div id="statusColorSettings">
             <div class="settings-grid">
               <label><span data-i18n="status.online">Warna online</span>
@@ -1327,7 +1325,7 @@ $pamantauAuth = $pamantauHeadlessMode
         </button>
       </header>
       <div class="settings-body tg-modal-body">
-        <p class="settings-desc" data-i18n="tg.shot_desc">Background worker merender canvas terbaru lewat Chrome/Edge headless pada setiap jadwal, lalu mengirim hasilnya ke Telegram.</p>
+        <p class="settings-desc" data-i18n="tg.shot_desc">Worker server (cli/background.php) merender canvas lewat Chrome/Edge headless pada setiap jadwal, lalu mengirim ke Telegram. Sakelar ini juga mengizinkan worker berjalan.</p>
         <label class="switch-row">
           <span class="switch-text" data-i18n="tg.shot_enabled">Aktifkan screenshot terjadwal</span>
           <span class="switch">
@@ -1335,6 +1333,15 @@ $pamantauAuth = $pamantauHeadlessMode
             <span class="slider" aria-hidden="true"></span>
           </span>
         </label>
+        <div id="tgShotSchedHint" class="bg-sched-hint hidden">
+          <div class="bg-sched-label" data-i18n="bg.cron_title">Cron otomatis</div>
+          <p class="settings-desc" id="tgShotCronStatus" data-i18n="bg.cron_auto_desc">Saat disimpan ON, baris cron root dipasang otomatis. OFF menghapusnya.</p>
+          <div class="bg-sched-cmd-row">
+            <code class="bg-sched-cmd" id="bgCronHint"></code>
+            <button type="button" class="btn ghost" id="btnCopyBgCron" data-i18n="bg.cron_copy">Salin</button>
+          </div>
+          <p class="settings-desc" id="tgShotCronNote" data-i18n="bg.cron_note">Cron dikelola otomatis lewat WSL root (Windows) atau crontab user PHP (Linux).</p>
+        </div>
         <div class="settings-grid">
           <label><span data-i18n="tg.shot_format">Format</span>
             <select id="tgShotFormat">
@@ -1352,7 +1359,7 @@ $pamantauAuth = $pamantauHeadlessMode
         </div>
         <div class="settings-grid" id="tgShotFieldsInterval">
           <label><span data-i18n="tg.shot_every">Setiap (menit)</span>
-            <input type="number" id="tgShotEvery" min="5" max="1440" step="1" />
+            <input type="number" id="tgShotEvery" min="1" max="1440" step="1" />
           </label>
         </div>
         <div class="settings-grid hidden" id="tgShotFieldsHourly">

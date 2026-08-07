@@ -1,11 +1,13 @@
 # Local / runtime
 database/pamantau.json
 database/auth_attempts.json
+database/app.key
 database/*.lock
 database/background.lock
 database/topology-canvas.*
 database/headless-snapshot-*
 database/runtime-base-url.json
+database/.cron_installed
 .update-progress.json
 
 # Editor / OS

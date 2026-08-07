@@ -4,7 +4,7 @@ Monitor topologi jaringan langsung (PHP + vanilla JS).
 
 ## Versi
 
-Sumber versi: `version.json` (saat ini **1.6.0**).
+Sumber versi: `version.json` (saat ini **1.7.0**).
 
 ## Update dari GitHub (seperti FO-Simulator)
 
@@ -15,6 +15,15 @@ Sumber versi: `version.json` (saat ini **1.6.0**).
 5. Di aplikasi: **Pengaturan → Update → Cek update / Pasang update**
 
 Server Linux membutuhkan PHP `exec` + `bash` untuk `update.php` / `update.sh`. Folder `database/` dan file topology `*.json` di root **dipertahankan** saat update.
+
+## Auth, screenshot & canvas v1.7.0
+
+- Lupa Password memakai recovery key `database/app.key` (bisa reset username + password).
+- Tema Sand dihapus; hanya Light dan Dark.
+- Sakelar Background digabung ke **Aktifkan screenshot terjadwal**; cron root dipasang/dihapus otomatis (WSL via `cli/cronctl.sh`).
+- Interval screenshot minimal 1 menit.
+- Worker headless di WSL memakai Chrome/Edge Windows di `/mnt/c/...`.
+- Ukuran teks label perangkat di canvas diperbesar.
 
 ## Mobile zoom & language v1.6.0
 

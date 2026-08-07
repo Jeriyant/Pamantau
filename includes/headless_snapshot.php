@@ -130,6 +130,59 @@ function pamantau_headless_complete_upload(mixed $upload, string $token): array
     return array_merge($valid, ['ok' => true]);
 }
 
+function pamantau_is_wsl(): bool
+{
+    if (PHP_OS_FAMILY === 'Windows') {
+        return false;
+    }
+    $version = @file_get_contents('/proc/version');
+    return is_string($version) && stripos($version, 'microsoft') !== false;
+}
+
+/** True when the browser binary is a Windows .exe (possibly launched from WSL). */
+function pamantau_headless_browser_is_windows_exe(string $browser): bool
+{
+    return (bool) preg_match('/\.exe$/i', $browser);
+}
+
+/**
+ * Convert a WSL path under /mnt/<drive>/... to a Windows path.
+ * Returns '' when conversion is not possible.
+ */
+function pamantau_wsl_to_windows_path(string $linuxPath): string
+{
+    $linuxPath = str_replace('\\', '/', $linuxPath);
+    if (preg_match('#^/mnt/([a-zA-Z])/(.*)$#', $linuxPath, $m)) {
+        return strtoupper($m[1]) . ':\\' . str_replace('/', '\\', $m[2]);
+    }
+    return '';
+}
+
+function pamantau_headless_windows_temp_dir(): string
+{
+    foreach ([
+        '/mnt/c/Windows/Temp',
+        '/mnt/c/Temp',
+    ] as $dir) {
+        if (is_dir($dir) && is_writable($dir)) {
+            return $dir;
+        }
+    }
+    return sys_get_temp_dir();
+}
+
+function pamantau_headless_browser_candidate_usable(string $candidate): bool
+{
+    if ($candidate === '' || !is_file($candidate)) {
+        return false;
+    }
+    // Windows .exe on WSL/drvfs is often not reported as executable.
+    if (pamantau_headless_browser_is_windows_exe($candidate)) {
+        return true;
+    }
+    return is_executable($candidate);
+}
+
 function pamantau_headless_browser_executable(): string
 {
     $configured = trim((string) getenv('PAMANTAU_BROWSER_PATH'));
@@ -148,9 +201,18 @@ function pamantau_headless_browser_executable(): string
                 $candidates[] = $found;
             }
         }
+        // WSL cron runs Linux PHP but browsers are usually installed on Windows.
+        if (pamantau_is_wsl()) {
+            $candidates = array_merge($candidates, [
+                '/mnt/c/Program Files/Google/Chrome/Application/chrome.exe',
+                '/mnt/c/Program Files (x86)/Google/Chrome/Application/chrome.exe',
+                '/mnt/c/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
+                '/mnt/c/Program Files/Microsoft/Edge/Application/msedge.exe',
+            ]);
+        }
     }
     foreach ($candidates as $candidate) {
-        if (is_file($candidate) && is_executable($candidate)) {
+        if (pamantau_headless_browser_candidate_usable($candidate)) {
             return $candidate;
         }
     }
@@ -160,8 +222,27 @@ function pamantau_headless_browser_executable(): string
 function pamantau_headless_remove_tree(string $path): void
 {
     $real = realpath($path);
+    if ($real === false) {
+        return;
+    }
+    $allowedRoots = [];
     $temp = realpath(sys_get_temp_dir());
-    if ($real === false || $temp === false || !str_starts_with(strtolower($real), strtolower($temp . DIRECTORY_SEPARATOR . 'pamantau-headless-'))) {
+    if ($temp !== false) {
+        $allowedRoots[] = $temp;
+    }
+    $winTemp = realpath(pamantau_headless_windows_temp_dir());
+    if ($winTemp !== false) {
+        $allowedRoots[] = $winTemp;
+    }
+    $ok = false;
+    foreach ($allowedRoots as $root) {
+        $prefix = rtrim($root, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR . 'pamantau-headless-';
+        if (str_starts_with(strtolower($real), strtolower($prefix))) {
+            $ok = true;
+            break;
+        }
+    }
+    if (!$ok) {
         return;
     }
     $items = new RecursiveIteratorIterator(
@@ -175,15 +256,23 @@ function pamantau_headless_remove_tree(string $path): void
 }
 
 /** Stop only the browser process tree started for this render job. */
-function pamantau_headless_terminate_process(mixed $process): void
+function pamantau_headless_terminate_process(mixed $process, string $browser = ''): void
 {
     if (!is_resource($process)) {
         return;
     }
     $status = proc_get_status($process);
     $pid = max(0, (int) ($status['pid'] ?? 0));
-    if ($pid > 0 && PHP_OS_FAMILY === 'Windows') {
-        $null = fopen('NUL', 'w');
+    $useWindowsKill = $pid > 0 && (
+        PHP_OS_FAMILY === 'Windows'
+        || pamantau_headless_browser_is_windows_exe($browser)
+    );
+    if ($useWindowsKill) {
+        $taskkill = PHP_OS_FAMILY === 'Windows'
+            ? 'taskkill.exe'
+            : '/mnt/c/Windows/System32/taskkill.exe';
+        $nullPath = PHP_OS_FAMILY === 'Windows' ? 'NUL' : '/dev/null';
+        $null = @fopen($nullPath, 'w');
         $descriptors = [
             0 => ['pipe', 'r'],
             1 => is_resource($null) ? $null : ['pipe', 'w'],
@@ -191,7 +280,7 @@ function pamantau_headless_terminate_process(mixed $process): void
         ];
         $killerPipes = [];
         $killer = @proc_open(
-            ['taskkill.exe', '/PID', (string) $pid, '/T', '/F'],
+            [$taskkill, '/PID', (string) $pid, '/T', '/F'],
             $descriptors,
             $killerPipes,
             null,
@@ -234,9 +323,22 @@ function pamantau_render_topology_headless(): array
         return $created;
     }
     $token = (string) $created['token'];
-    $profile = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'pamantau-headless-' . bin2hex(random_bytes(8));
+    $windowsBrowser = pamantau_headless_browser_is_windows_exe($browser);
+    $profileRoot = $windowsBrowser && pamantau_is_wsl()
+        ? pamantau_headless_windows_temp_dir()
+        : sys_get_temp_dir();
+    $profile = $profileRoot . DIRECTORY_SEPARATOR . 'pamantau-headless-' . bin2hex(random_bytes(8));
     if (!@mkdir($profile, 0700, true) && !is_dir($profile)) {
         return ['ok' => false, 'error' => 'Folder sementara renderer tidak dapat dibuat'];
+    }
+    $profileArg = $profile;
+    if ($windowsBrowser && pamantau_is_wsl()) {
+        $winProfile = pamantau_wsl_to_windows_path($profile);
+        if ($winProfile === '') {
+            pamantau_headless_remove_tree($profile);
+            return ['ok' => false, 'error' => 'Path profil Windows untuk renderer tidak valid'];
+        }
+        $profileArg = $winProfile;
     }
     $url = $baseUrl . 'index.php?headless_snapshot=' . rawurlencode($token);
     $command = [
@@ -254,7 +356,7 @@ function pamantau_render_topology_headless(): array
         '--window-size=1920,1080',
         '--virtual-time-budget=15000',
         '--dump-dom',
-        '--user-data-dir=' . $profile,
+        '--user-data-dir=' . $profileArg,
         '--ignore-certificate-errors',
         $url,
     ];
@@ -313,7 +415,7 @@ function pamantau_render_topology_headless(): array
                 . ($detail !== '' ? ': ' . substr($detail, 0, 300) : ''),
         ];
     } finally {
-        pamantau_headless_terminate_process($process);
+        pamantau_headless_terminate_process($process, $browser);
         foreach ([1, 2] as $pipeNo) {
             if (isset($pipes[$pipeNo]) && is_resource($pipes[$pipeNo])) {
                 fclose($pipes[$pipeNo]);

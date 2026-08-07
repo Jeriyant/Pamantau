@@ -7,6 +7,7 @@ require_once __DIR__ . '/../includes/network.php';
 require_once __DIR__ . '/../includes/telegram.php';
 require_once __DIR__ . '/../includes/topology_snapshot.php';
 require_once __DIR__ . '/../includes/poll.php';
+require_once __DIR__ . '/../includes/cron.php';
 
 // Session must start BEFORE any output/headers so Set-Cookie (login/logout) works.
 pamantau_auth_boot();
@@ -147,14 +148,14 @@ $headlessAuthorized = in_array($action, $headlessActions, true)
     && pamantau_headless_token_valid($headlessToken);
 
 // logout is public so a half-dead session can still be cleared without a 401 loop.
-$publicActions = ['login', 'auth_status', 'logout'];
+$publicActions = ['login', 'auth_status', 'logout', 'reset_password'];
 if (!in_array($action, $publicActions, true) && !$headlessAuthorized) {
     pamantau_auth_require();
 }
 
 // Release the session file lock ASAP. Long actions (poll/scan) otherwise block
 // concurrent logout/login until they finish — which looks like endless loading.
-$sessionWriteActions = ['login', 'logout', 'change_credentials'];
+$sessionWriteActions = ['login', 'logout', 'change_credentials', 'reset_password'];
 if (
     !in_array($action, $sessionWriteActions, true)
     && session_status() === PHP_SESSION_ACTIVE
@@ -266,6 +267,89 @@ try {
             ]);
         }
 
+        case 'reset_password': {
+            $status = pamantau_auth_rate_limit_status();
+            if ($status['locked']) {
+                json_out([
+                    'ok' => false,
+                    'error' => 'Account locked. Try again later.',
+                    'rate_limited' => true,
+                    'retry_after' => $status['retry_after'],
+                ], 429);
+            }
+
+            $recoveryKey = trim((string) ($body['recovery_key'] ?? $body['app_key'] ?? ''));
+            $newPassword = (string) ($body['new_password'] ?? '');
+            $confirmPassword = (string) ($body['confirm_password'] ?? '');
+
+            if ($recoveryKey === '' || !pamantau_app_key_verify($recoveryKey)) {
+                $status = pamantau_auth_record_failure();
+                json_out([
+                    'ok' => false,
+                    'error' => $status['locked'] ? 'Account locked. Try again later.' : 'Invalid recovery key',
+                    'rate_limited' => $status['locked'],
+                    'retry_after' => $status['retry_after'],
+                ], $status['locked'] ? 429 : 401);
+            }
+
+            if (strlen($newPassword) < 6) {
+                json_out(['ok' => false, 'error' => 'New password must be at least 6 characters'], 422);
+            }
+            if ($confirmPassword !== '' && !hash_equals($newPassword, $confirmPassword)) {
+                json_out(['ok' => false, 'error' => 'Password confirmation does not match'], 422);
+            }
+
+            $newUsernameRaw = trim((string) ($body['new_username'] ?? $body['username'] ?? ''));
+            if ($newUsernameRaw === '') {
+                json_out(['ok' => false, 'error' => 'Username cannot be empty'], 422);
+            }
+            $nextUsername = $newUsernameRaw;
+
+            $store = pamantau_load_store();
+            $store['auth'] = [
+                'username' => $nextUsername,
+                'password_hash' => password_hash($newPassword, PASSWORD_DEFAULT),
+            ];
+            pamantau_save_store($store);
+            pamantau_app_key_rotate();
+            pamantau_auth_clear_failures();
+
+            json_out([
+                'ok' => true,
+                'message' => 'Password reset successfully',
+                'auth' => [
+                    'username' => $nextUsername,
+                    'logged_in' => false,
+                ],
+            ]);
+        }
+
+        case 'recovery_key': {
+            $key = pamantau_app_key_ensure();
+            if ($key === '') {
+                json_out(['ok' => false, 'error' => 'Unable to read recovery key'], 500);
+            }
+
+            json_out([
+                'ok' => true,
+                'recovery_key' => $key,
+                'path' => 'database/app.key',
+            ]);
+        }
+
+        case 'rotate_recovery_key': {
+            $key = pamantau_app_key_rotate();
+            if ($key === '') {
+                json_out(['ok' => false, 'error' => 'Unable to rotate recovery key'], 500);
+            }
+
+            json_out([
+                'ok' => true,
+                'recovery_key' => $key,
+                'path' => 'database/app.key',
+            ]);
+        }
+
         case 'bootstrap': {
             $uptime = pamantau_uptime_payload();
             json_out([
@@ -327,7 +411,6 @@ try {
                 'status_online_color',
                 'status_offline_color',
                 'status_unknown_color',
-                'background_enabled',
             ];
             $settings = pamantau_normalize_settings(pamantau_read('settings', []));
             foreach ($keys as $key) {
@@ -335,16 +418,39 @@ try {
                     $settings[$key] = $body[$key];
                 }
             }
+            $hadShotKey = array_key_exists('telegram_screenshot_enabled', $body);
             $settings = pamantau_apply_telegram_settings_patch($settings, $body);
             $settings = pamantau_normalize_settings($settings);
             pamantau_write('settings', $settings);
-            json_out(['ok' => true, 'settings' => pamantau_settings_for_client($settings)]);
+
+            $cron = null;
+            if ($hadShotKey) {
+                $cron = pamantau_background_cron_sync(!empty($settings['telegram_screenshot_enabled']));
+            }
+
+            json_out([
+                'ok' => true,
+                'settings' => pamantau_settings_for_client($settings),
+                'cron' => $cron,
+            ]);
+        }
+
+        case 'background_cron_status': {
+            json_out([
+                'ok' => true,
+                'cron' => pamantau_background_cron_status(),
+            ]);
         }
 
         case 'reset_settings': {
             $settings = pamantau_default_settings();
             pamantau_write('settings', $settings);
-            json_out(['ok' => true, 'settings' => pamantau_settings_for_client($settings)]);
+            $cron = pamantau_background_cron_sync(false);
+            json_out([
+                'ok' => true,
+                'settings' => pamantau_settings_for_client($settings),
+                'cron' => $cron,
+            ]);
         }
 
         case 'export_database': {

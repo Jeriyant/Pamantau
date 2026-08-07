@@ -273,7 +273,7 @@
     telegram_screenshot_last_at: '',
   };
 
-  const THEME_KEYS = ['light', 'dark', 'sand'];
+  const THEME_KEYS = ['light', 'dark'];
 
   const state = {
     devices: [],
@@ -395,10 +395,11 @@
     modalTgUpDown: document.getElementById('modalTgUpDown'),
     modalTgScreenshot: document.getElementById('modalTgScreenshot'),
     modalTgSettings: document.getElementById('modalTgSettings'),
-    setBackgroundEnabled: document.getElementById('setBackgroundEnabled'),
-    bgSchedHint: document.getElementById('bgSchedHint'),
+    bgSchedHint: document.getElementById('tgShotSchedHint'),
     bgCronHint: document.getElementById('bgCronHint'),
     btnCopyBgCron: document.getElementById('btnCopyBgCron'),
+    tgShotCronStatus: document.getElementById('tgShotCronStatus'),
+    tgShotCronNote: document.getElementById('tgShotCronNote'),
     tgNotifyUp: document.getElementById('tgNotifyUp'),
     tgNotifyDown: document.getElementById('tgNotifyDown'),
     tgTplUpPreview: document.getElementById('tgTplUpPreview'),
@@ -557,6 +558,13 @@
     btnSaveAccount: document.getElementById('btnSaveAccount'),
     btnResetAccount: document.getElementById('btnResetAccount'),
     accountSection: document.getElementById('accountSection'),
+    accountRecovery: document.getElementById('accountRecovery'),
+    accountRecoveryKey: document.getElementById('accountRecoveryKey'),
+    accountRecoveryPath: document.getElementById('accountRecoveryPath'),
+    accountRecoveryStatus: document.getElementById('accountRecoveryStatus'),
+    btnRevealRecoveryKey: document.getElementById('btnRevealRecoveryKey'),
+    btnCopyRecoveryKey: document.getElementById('btnCopyRecoveryKey'),
+    btnRotateRecoveryKey: document.getElementById('btnRotateRecoveryKey'),
     btnReports: document.getElementById('btnReports'),
     ctxOpenWrap: document.getElementById('ctxOpenWrap'),
     ctxOpenTrigger: document.getElementById('ctxOpenTrigger'),
@@ -639,7 +647,6 @@
   // Theme → device skin. Changing theme swaps canvas device visuals.
   // Dark uses the same card chrome as Light (status tile + capsule + pills).
   const DEVICE_SKINS = {
-    sand: 'orbital',
     light: 'card',
     dark: 'card',
   };
@@ -871,7 +878,7 @@
     const lines = deviceBodyLines(d);
     const lineStep = compact ? 15 : 16;
     const metaPillGap = compact ? 3 : 4;
-    const labelStep = compact ? 20 : 22;
+    const labelStep = compact ? 24 : 26;
     const labelPadX = compact ? 8 : 10;
     const labelPadY = compact ? 6 : 7;
     const hasLabel = lines.some((l) => l.kind === 'label');
@@ -986,7 +993,7 @@
     const labelFont = m.skin === 'orbital'
       ? (compact ? '700 11px "Oxanium", "Sora"' : '700 12.5px "Oxanium", "Sora"')
       : m.skin === 'card'
-        ? (compact ? '700 11px "Oxanium", "Sora"' : '700 12.5px "Oxanium", "Sora"')
+        ? (compact ? '700 18px "Oxanium", "Sora"' : '700 19.5px "Oxanium", "Sora"')
         : (compact ? '700 11px "Oxanium", "Sora"' : '700 12px "Oxanium", "Sora"');
 
     if (showSetting('show_label')) {
@@ -1276,6 +1283,42 @@
       el.accountNewUsername.value = state.auth && state.auth.username ? state.auth.username : '';
     }
     clearAccountForm();
+    loadRecoveryKey();
+  }
+
+  function setRecoveryStatus(text, kind) {
+    if (!el.accountRecoveryStatus) return;
+    el.accountRecoveryStatus.textContent = text || '';
+    el.accountRecoveryStatus.classList.toggle('is-error', kind === 'error');
+    el.accountRecoveryStatus.classList.toggle('is-ok', kind === 'ok');
+  }
+
+  function applyRecoveryKeyPayload(data) {
+    const key = data && data.recovery_key ? String(data.recovery_key) : '';
+    const path = data && data.path ? String(data.path) : 'database/app.key';
+    if (el.accountRecoveryKey) {
+      el.accountRecoveryKey.value = key;
+      el.accountRecoveryKey.type = 'password';
+    }
+    if (el.btnRevealRecoveryKey) {
+      el.btnRevealRecoveryKey.classList.remove('is-shown');
+      const label = t('auth.reveal_recovery_key');
+      el.btnRevealRecoveryKey.setAttribute('aria-label', label);
+      el.btnRevealRecoveryKey.setAttribute('title', label);
+    }
+    if (el.accountRecoveryPath) {
+      el.accountRecoveryPath.textContent = `${t('auth.recovery_path')}: ${path}`;
+    }
+  }
+
+  async function loadRecoveryKey() {
+    if (!el.accountRecoveryKey) return;
+    try {
+      const data = await api('recovery_key');
+      applyRecoveryKeyPayload(data);
+    } catch (err) {
+      setRecoveryStatus(err.message || t('auth.recovery_load_failed'), 'error');
+    }
   }
 
   function passwordStrength(value) {
@@ -3171,7 +3214,7 @@
       const statusTextColor = statusColor(status);
       const metaBaseFont = compact ? '500 9px "JetBrains Mono"' : '500 9.5px "JetBrains Mono"';
       const metaLatFont = compact ? '700 9px "JetBrains Mono"' : '700 9.5px "JetBrains Mono"';
-      const labelFont = compact ? '700 14px "Oxanium", "Sora"' : '700 15.5px "Oxanium", "Sora"';
+      const labelFont = compact ? '700 18px "Oxanium", "Sora"' : '700 19.5px "Oxanium", "Sora"';
       const metaPadX = compact ? 6 : 7;
       let ty = y + m.stackH + m.labelGap;
 
@@ -7165,6 +7208,7 @@
   function resolveTheme(raw) {
     let key = String(raw || DEFAULT_SETTINGS.theme).toLowerCase().trim();
     if (key === 'midnight') key = 'dark';
+    if (key === 'sand') key = 'light';
     return THEME_KEYS.includes(key) ? key : DEFAULT_SETTINGS.theme;
   }
 
@@ -7289,8 +7333,6 @@
     syncGridSettingsUi();
     if (el.setTheme) el.setTheme.value = resolveTheme(s.theme);
     if (el.setUiLanguage) el.setUiLanguage.value = normalizeUiLang(s.ui_language);
-    if (el.setBackgroundEnabled) el.setBackgroundEnabled.checked = !!s.background_enabled;
-    syncBackgroundSchedUi();
     syncColorField(el.setStatusOnlineColor, el.setStatusOnlineColorText, s.status_online_color, DEFAULT_SETTINGS.status_online_color);
     syncColorField(el.setStatusOfflineColor, el.setStatusOfflineColorText, s.status_offline_color, DEFAULT_SETTINGS.status_offline_color);
     syncColorField(el.setStatusUnknownColor, el.setStatusUnknownColorText, s.status_unknown_color, DEFAULT_SETTINGS.status_unknown_color);
@@ -7317,9 +7359,39 @@
     if (!visible && el.setSnapDrag) el.setSnapDrag.checked = false;
   }
 
-  function syncBackgroundSchedUi() {
-    if (!el.bgSchedHint || !el.setBackgroundEnabled) return;
-    el.bgSchedHint.classList.toggle('hidden', !el.setBackgroundEnabled.checked);
+  function syncTgShotSchedHintUi() {
+    if (!el.bgSchedHint || !el.tgShotEnabled) return;
+    el.bgSchedHint.classList.toggle('hidden', !el.tgShotEnabled.checked);
+  }
+
+  function applyCronStatus(cron) {
+    if (!cron || typeof cron !== 'object') return;
+    if (el.bgCronHint && cron.line) {
+      el.bgCronHint.textContent = String(cron.line);
+    }
+    if (el.tgShotCronStatus) {
+      if (cron.installed) {
+        el.tgShotCronStatus.textContent = cron.message || t('bg.cron_installed');
+      } else if (cron.ok === false && cron.message) {
+        el.tgShotCronStatus.textContent = cron.message;
+      } else {
+        el.tgShotCronStatus.textContent = t('bg.cron_missing');
+      }
+    }
+    if (el.tgShotCronNote) {
+      el.tgShotCronNote.textContent = cron.installed
+        ? t('bg.cron_installed')
+        : t('bg.cron_note');
+    }
+  }
+
+  async function refreshBackgroundCronStatus() {
+    try {
+      const data = await api('background_cron_status');
+      applyCronStatus(data.cron || {});
+    } catch (_) {
+      // Ignore — cron status is informational.
+    }
   }
 
   function appendCommonPortRow(portValue, noteValue) {
@@ -7588,7 +7660,6 @@
       layout_locked: !!state.settings.layout_locked,
       theme: resolveTheme(el.setTheme?.value),
       ui_language: normalizeUiLang(el.setUiLanguage?.value),
-      background_enabled: !!(el.setBackgroundEnabled && el.setBackgroundEnabled.checked),
       status_online_color: readColorField(
         el.setStatusOnlineColor,
         el.setStatusOnlineColorText,
@@ -7664,7 +7735,7 @@
       : 'interval';
     if (el.tgShotMode) el.tgShotMode.value = mode;
     if (el.tgShotEvery) {
-      el.tgShotEvery.value = Math.min(1440, Math.max(5, Number(s.telegram_screenshot_every_min || 30)));
+      el.tgShotEvery.value = Math.min(1440, Math.max(1, Number(s.telegram_screenshot_every_min || 30)));
     }
     if (el.tgShotHourlyMinute) {
       el.tgShotHourlyMinute.value = Math.min(59, Math.max(0, Number(s.telegram_screenshot_hourly_minute ?? 0)));
@@ -7674,6 +7745,8 @@
       el.tgShotDailyTime.value = /^\d{1,2}:\d{2}$/.test(raw) ? raw.padStart(5, '0') : '08:00';
     }
     syncTgShotScheduleFields();
+    syncTgShotSchedHintUi();
+    refreshBackgroundCronStatus();
     if (el.tgShotLastHint) {
       const last = String(s.telegram_screenshot_last_at || '').trim();
       el.tgShotLastHint.textContent = last
@@ -7739,6 +7812,7 @@
   async function saveTelegramPatch(patch) {
     const data = await api('save_settings', patch);
     applyTelegramSettingsResponse(data.settings || patch);
+    if (data.cron) applyCronStatus(data.cron);
     if (
       Object.prototype.hasOwnProperty.call(patch, 'telegram_screenshot_enabled')
       || Object.prototype.hasOwnProperty.call(patch, 'telegram_screenshot_format')
@@ -10621,6 +10695,61 @@ ${periodHtml}
     });
   }
 
+  if (el.btnRevealRecoveryKey && el.accountRecoveryKey) {
+    el.btnRevealRecoveryKey.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const show = el.accountRecoveryKey.type === 'password';
+      el.accountRecoveryKey.type = show ? 'text' : 'password';
+      el.btnRevealRecoveryKey.classList.toggle('is-shown', show);
+      const label = show ? t('auth.hide_recovery_key') : t('auth.reveal_recovery_key');
+      el.btnRevealRecoveryKey.setAttribute('aria-label', label);
+      el.btnRevealRecoveryKey.setAttribute('title', label);
+    });
+  }
+
+  if (el.btnCopyRecoveryKey && el.accountRecoveryKey) {
+    el.btnCopyRecoveryKey.addEventListener('click', async () => {
+      const value = el.accountRecoveryKey.value.trim();
+      if (!value) {
+        setRecoveryStatus(t('auth.recovery_load_failed'), 'error');
+        return;
+      }
+      try {
+        await copyTextToClipboard(value);
+        setRecoveryStatus(t('auth.recovery_copied'), 'ok');
+        toast(t('auth.recovery_copied'));
+      } catch (_) {
+        setRecoveryStatus(t('toast.copy_fail'), 'error');
+        toast(t('toast.copy_fail'));
+      }
+    });
+  }
+
+  if (el.btnRotateRecoveryKey) {
+    el.btnRotateRecoveryKey.addEventListener('click', async () => {
+      const ok = await confirmDialog({
+        title: t('auth.recovery_section'),
+        message: t('auth.rotate_recovery_confirm'),
+        confirmLabel: t('auth.rotate_recovery_key'),
+      });
+      if (!ok) return;
+      el.btnRotateRecoveryKey.disabled = true;
+      try {
+        const data = await api('rotate_recovery_key', {});
+        applyRecoveryKeyPayload(data);
+        setRecoveryStatus(t('auth.recovery_rotated'), 'ok');
+        toast(t('auth.recovery_rotated'));
+      } catch (err) {
+        const message = err.message || String(err);
+        setRecoveryStatus(message, 'error');
+        toast(message);
+      } finally {
+        el.btnRotateRecoveryKey.disabled = false;
+      }
+    });
+  }
+
   if (el.tgBotToken) {
     el.tgBotToken.addEventListener('input', () => {
       tgTokenDirty = true;
@@ -10674,22 +10803,45 @@ ${periodHtml}
         : 'interval';
       let dailyTime = String(el.tgShotDailyTime?.value || '08:00').trim();
       if (!/^\d{1,2}:\d{2}$/.test(dailyTime)) dailyTime = '08:00';
-      await saveTelegramPatch({
-        telegram_screenshot_enabled: !!(el.tgShotEnabled && el.tgShotEnabled.checked),
+      const enabled = !!(el.tgShotEnabled && el.tgShotEnabled.checked);
+      const data = await saveTelegramPatch({
+        telegram_screenshot_enabled: enabled,
         telegram_screenshot_format: el.tgShotFormat && el.tgShotFormat.value === 'jpg' ? 'jpg' : 'png',
         telegram_screenshot_schedule_mode: mode,
-        telegram_screenshot_every_min: Math.min(1440, Math.max(5, Number(el.tgShotEvery?.value || 30))),
+        telegram_screenshot_every_min: Math.min(1440, Math.max(1, Number(el.tgShotEvery?.value || 30))),
         telegram_screenshot_hourly_minute: Math.min(59, Math.max(0, Number(el.tgShotHourlyMinute?.value ?? 0))),
         telegram_screenshot_daily_time: dailyTime,
       });
       closeTgScreenshot();
-      toast(t('toast.tg_saved'));
+      if (data && data.cron) {
+        if (data.cron.ok === false) {
+          toast(data.cron.message || t('bg.cron_failed'));
+        } else {
+          toast(enabled ? t('bg.cron_install_ok') : t('bg.cron_remove_ok'));
+        }
+      } else {
+        toast(t('toast.tg_saved'));
+      }
     } catch (err) {
       toast(err.message || String(err));
     }
   });
 
   el.tgShotMode?.addEventListener('change', syncTgShotScheduleFields);
+  el.tgShotEnabled?.addEventListener('change', () => syncTgShotSchedHintUi());
+
+  if (el.btnCopyBgCron) {
+    el.btnCopyBgCron.addEventListener('click', async () => {
+      const line = (el.bgCronHint && el.bgCronHint.textContent || '').trim();
+      if (!line) return;
+      try {
+        await copyTextToClipboard(line);
+        toast(t('toast.copied'));
+      } catch (_) {
+        toast(t('toast.clipboard_denied'));
+      }
+    });
+  }
 
   document.getElementById('btnTgTestShot')?.addEventListener('click', async () => {
     try {
@@ -10761,21 +10913,6 @@ ${periodHtml}
   }
   if (el.setShowGrid) {
     el.setShowGrid.addEventListener('change', () => syncGridSettingsUi());
-  }
-  if (el.setBackgroundEnabled) {
-    el.setBackgroundEnabled.addEventListener('change', () => syncBackgroundSchedUi());
-  }
-  if (el.btnCopyBgCron) {
-    el.btnCopyBgCron.addEventListener('click', async () => {
-      const line = (el.bgCronHint && el.bgCronHint.textContent || '').trim();
-      if (!line) return;
-      try {
-        await copyTextToClipboard(line);
-        toast(t('toast.copied'));
-      } catch (_) {
-        toast(t('toast.clipboard_denied'));
-      }
-    });
   }
   if (el.btnAddCommonPort) {
     el.btnAddCommonPort.addEventListener('click', () => {
