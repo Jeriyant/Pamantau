@@ -73,6 +73,36 @@ function pamantau_headless_token_valid(string $token): bool
         && hash_equals((string) $job['token_hash'], hash('sha256', $token));
 }
 
+/**
+ * Prefer a completed job, but also accept a valid output.bin alone.
+ * Apache (www-data) may write the canvas while a root-owned job.json
+ * cannot be updated to status=complete (common when cron runs as root).
+ *
+ * @return array{ok:bool,error?:string,binary?:string,mime?:string,filename?:string,width?:int,height?:int}|null
+ */
+function pamantau_headless_try_read_result(?int $notBefore = null): ?array
+{
+    $path = pamantau_headless_output_path();
+    if (!is_file($path)) {
+        return null;
+    }
+    if ($notBefore !== null) {
+        $mtime = @filemtime($path);
+        if (!is_int($mtime) || $mtime < $notBefore) {
+            return null;
+        }
+    }
+    $binary = @file_get_contents($path);
+    if (!is_string($binary) || $binary === '') {
+        return null;
+    }
+    $valid = pamantau_validate_canvas_snapshot_binary($binary);
+    if (empty($valid['ok'])) {
+        return null;
+    }
+    return array_merge($valid, ['binary' => $binary]);
+}
+
 /** @return array{ok:bool,error?:string,token?:string} */
 function pamantau_headless_create_job(): array
 {
@@ -82,6 +112,25 @@ function pamantau_headless_create_job(): array
         return ['ok' => false, 'error' => 'Token renderer headless gagal dibuat'];
     }
     @unlink(pamantau_headless_output_path());
+    $jobPath = pamantau_headless_job_path();
+    $dbDir = dirname($jobPath);
+    if (!is_dir($dbDir) && !@mkdir($dbDir, 0775, true) && !is_dir($dbDir)) {
+        return ['ok' => false, 'error' => 'Folder database tidak dapat dibuat (izin www-data)'];
+    }
+    // Drop stale root-owned job files so www-data can recreate them.
+    if (is_file($jobPath) && !is_writable($jobPath)) {
+        @unlink($jobPath);
+        if (is_file($jobPath) && !is_writable($jobPath)) {
+            return [
+                'ok' => false,
+                'error' => 'File job headless milik user lain (sering root). Jalankan: '
+                    . 'rm -f ' . $jobPath . ' && chown -R www-data:www-data ' . $dbDir
+                    . ' — dan pastikan cron memakai www-data, bukan root',
+            ];
+        }
+    } else {
+        @unlink($jobPath);
+    }
     $job = [
         'token_hash' => hash('sha256', $token),
         'status' => 'pending',
@@ -89,9 +138,14 @@ function pamantau_headless_create_job(): array
         'expires_at' => time() + PAMANTAU_HEADLESS_SNAPSHOT_TTL,
     ];
     $json = json_encode($job, JSON_UNESCAPED_SLASHES);
-    if (!is_string($json) || @file_put_contents(pamantau_headless_job_path(), $json, LOCK_EX) === false) {
-        return ['ok' => false, 'error' => 'Render job tidak dapat disimpan'];
+    if (!is_string($json) || @file_put_contents($jobPath, $json, LOCK_EX) === false) {
+        return [
+            'ok' => false,
+            'error' => 'Render job tidak dapat disimpan — pastikan '
+                . $dbDir . ' dimiliki www-data dan writable (chown -R www-data:www-data database)',
+        ];
     }
+    @chmod($jobPath, 0664);
     return ['ok' => true, 'token' => $token];
 }
 
@@ -113,9 +167,11 @@ function pamantau_headless_complete_upload(mixed $upload, string $token): array
     if (empty($valid['ok'])) {
         return $valid;
     }
-    if (@file_put_contents(pamantau_headless_output_path(), $binary, LOCK_EX) === false) {
+    $outPath = pamantau_headless_output_path();
+    if (@file_put_contents($outPath, $binary, LOCK_EX) === false) {
         return ['ok' => false, 'error' => 'Hasil render headless tidak dapat disimpan'];
     }
+    @chmod($outPath, 0664);
     $job = pamantau_headless_read_job();
     $job['status'] = 'complete';
     $job['completed_at'] = time();
@@ -123,6 +179,7 @@ function pamantau_headless_complete_upload(mixed $upload, string $token): array
     $job['filename'] = $valid['filename'];
     $job['width'] = $valid['width'];
     $job['height'] = $valid['height'];
+    // Best-effort: output.bin alone is enough if job.json is not writable (root cron).
     @file_put_contents(
         pamantau_headless_job_path(),
         json_encode($job, JSON_UNESCAPED_SLASHES),
@@ -329,6 +386,10 @@ function pamantau_headless_proc_env(): ?array
         $env['LANG'] = 'C.UTF-8';
     }
 
+    // Debian chromium often spawns crashpad_handler without --database under cron.
+    $env['CHROME_HEADLESS'] = '1';
+    unset($env['CHROME_CRASHPAD_PIPE_NAME'], $env['BREAKPAD_DUMP_LOCATION']);
+
     return $env;
 }
 
@@ -341,16 +402,45 @@ function pamantau_headless_stderr_summary(string $stderr): string
         if ($line === '') {
             continue;
         }
-        if (preg_match('/dbus\/bus\.cc|Failed to connect to the bus|Unknown address type|ERROR:gpu_|WARNING:gpu_|viz_main_impl|DevTools listening/i', $line)) {
+        if (preg_match(
+            '/dbus\/bus\.cc|Failed to connect to the bus|Unknown address type|ERROR:gpu_|WARNING:gpu_|viz_main_impl|DevTools listening|chrome_crashpad_handler|crashpad\/|recvmsg: Connection reset|Crashpad|breakpad|--database is required/i',
+            $line
+        )) {
             continue;
         }
         $kept[] = $line;
     }
     $summary = trim(implode(' | ', $kept));
     if ($summary === '' && trim($stderr) !== '') {
-        return 'Chromium headless jalan, tetapi canvas belum diunggah (cek URL lokal / curl -k ke 127.0.0.1)';
+        return 'Chromium headless jalan, tetapi canvas belum diunggah'
+            . ' (cek: curl -k ke URL lokal; hapus database/background.lock jika stale)';
     }
     return $summary;
+}
+
+/**
+ * Prefer the real Chromium binary over Debian's wrapper when available.
+ */
+function pamantau_headless_resolve_browser_binary(string $browser): string
+{
+    if ($browser === '' || PHP_OS_FAMILY === 'Windows') {
+        return $browser;
+    }
+    $real = realpath($browser);
+    $base = $real !== false ? $real : $browser;
+    $name = strtolower(basename($base));
+    if (str_contains($name, 'chromium')) {
+        foreach ([
+            '/usr/lib/chromium/chromium',
+            '/usr/lib/chromium-browser/chromium',
+            '/usr/lib/chromium-browser/chromium-browser',
+        ] as $lib) {
+            if (is_file($lib) && is_executable($lib)) {
+                return $lib;
+            }
+        }
+    }
+    return $browser;
 }
 
 /**
@@ -364,7 +454,7 @@ function pamantau_render_topology_headless(): array
     if ($baseUrl === '') {
         return ['ok' => false, 'error' => 'URL lokal renderer belum tersedia; buka Pamantau sekali setelah server aktif'];
     }
-    $browser = pamantau_headless_browser_executable();
+    $browser = pamantau_headless_resolve_browser_binary(pamantau_headless_browser_executable());
     if ($browser === '') {
         return ['ok' => false, 'error' => pamantau_headless_browser_missing_hint()];
     }
@@ -377,11 +467,19 @@ function pamantau_render_topology_headless(): array
     if (!@mkdir($profile, 0700, true) && !is_dir($profile)) {
         return ['ok' => false, 'error' => 'Folder sementara renderer tidak dapat dibuat'];
     }
+    $crashDir = $profile . DIRECTORY_SEPARATOR . 'Crashpad';
+    if (!@mkdir($crashDir, 0700, true) && !is_dir($crashDir)) {
+        $crashDir = $profile;
+    }
     $url = $baseUrl . 'index.php?headless_snapshot=' . rawurlencode($token);
+    // Keep the browser open until JS POSTs the canvas (complete_headless_snapshot).
+    // Do not use --dump-dom / --virtual-time-budget: those exit before async upload.
+    // --crash-dumps-dir + crashpad flags avoid "--database is required" under cron.
     $command = [
         $browser,
         '--headless=new',
         '--no-sandbox',
+        '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
         '--disable-gpu',
         '--disable-gpu-sandbox',
@@ -392,14 +490,15 @@ function pamantau_render_topology_headless(): array
         '--disable-background-networking',
         '--disable-background-timer-throttling',
         '--disable-renderer-backgrounding',
-        '--disable-features=TranslateUI,AudioServiceOutOfProcess',
+        '--disable-breakpad',
+        '--disable-crash-reporter',
+        '--disable-features=TranslateUI,AudioServiceOutOfProcess,Crashpad,CrashReporting',
         '--no-first-run',
         '--no-default-browser-check',
         '--hide-scrollbars',
         '--window-size=1920,1080',
-        '--virtual-time-budget=60000',
-        '--dump-dom',
         '--user-data-dir=' . $profile,
+        '--crash-dumps-dir=' . $crashDir,
         '--ignore-certificate-errors',
         '--allow-insecure-localhost',
         $url,
@@ -426,55 +525,54 @@ function pamantau_render_topology_headless(): array
     stream_set_blocking($pipes[1], false);
     stream_set_blocking($pipes[2], false);
     $deadline = microtime(true) + PAMANTAU_HEADLESS_SNAPSHOT_TTL;
+    $browserExitGrace = 3.0;
+    $browserExitAt = null;
     $error = '';
     $result = null;
+    $outputNotBefore = time() - 1;
     try {
         while (microtime(true) < $deadline) {
+            // Drain pipes so a blocked stdout/stderr buffer cannot stall Chromium.
             stream_get_contents($pipes[1]);
             $error .= (string) stream_get_contents($pipes[2]);
             if (strlen($error) > 4096) {
                 $error = substr($error, -4096);
             }
-            $job = pamantau_headless_read_job();
-            if (
-                $result === null
-                && ($job['status'] ?? '') === 'complete'
-                && is_file(pamantau_headless_output_path())
-            ) {
-                $binary = @file_get_contents(pamantau_headless_output_path());
-                if (is_string($binary)) {
-                    $valid = pamantau_validate_canvas_snapshot_binary($binary);
-                    if (!empty($valid['ok'])) {
-                        $result = array_merge($valid, ['binary' => $binary]);
-                    }
-                }
+            $try = pamantau_headless_try_read_result($outputNotBefore);
+            if (is_array($try)) {
+                $result = $try;
+                break;
             }
             $status = proc_get_status($process);
             if (empty($status['running'])) {
-                break;
+                if ($browserExitAt === null) {
+                    $browserExitAt = microtime(true);
+                }
+                // Brief grace for a late POST, then fail (browser died early).
+                if ((microtime(true) - $browserExitAt) >= $browserExitGrace) {
+                    break;
+                }
             }
             usleep(150000);
         }
         if ($result === null) {
-            $job = pamantau_headless_read_job();
-            if (($job['status'] ?? '') === 'complete' && is_file(pamantau_headless_output_path())) {
-                $binary = @file_get_contents(pamantau_headless_output_path());
-                if (is_string($binary)) {
-                    $valid = pamantau_validate_canvas_snapshot_binary($binary);
-                    if (!empty($valid['ok'])) {
-                        $result = array_merge($valid, ['binary' => $binary]);
-                    }
-                }
+            $try = pamantau_headless_try_read_result($outputNotBefore);
+            if (is_array($try)) {
+                $result = $try;
             }
         }
         if (is_array($result)) {
             return $result;
         }
         $detail = pamantau_headless_stderr_summary($error);
+        if ($detail === '') {
+            $detail = 'Chromium headless jalan, tetapi canvas belum diunggah'
+                . ' (cek: curl -k ke URL lokal; hapus database/background.lock jika stale)';
+        }
         return [
             'ok' => false,
             'error' => 'Renderer browser tidak menghasilkan canvas baru'
-                . ($detail !== '' ? ': ' . substr($detail, 0, 300) : '')
+                . ': ' . substr($detail, 0, 300)
                 . ' [url=' . $baseUrl . ']',
         ];
     } finally {

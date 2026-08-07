@@ -34,7 +34,7 @@ $pamantauAuth = $pamantauHeadlessMode
   <link rel="stylesheet" href="assets/css/update.css?v=<?= (int) @filemtime(__DIR__ . '/assets/css/update.css') ?>" />
 <?php
   $pamantauVersionFile = __DIR__ . '/version.json';
-  $pamantauVersion = '1.6.1';
+  $pamantauVersion = '1.6.2';
   if (is_file($pamantauVersionFile)) {
     $vj = json_decode((string) @file_get_contents($pamantauVersionFile), true);
     if (is_array($vj) && !empty($vj['version'])) {
@@ -1016,7 +1016,8 @@ $pamantauAuth = $pamantauHeadlessMode
             if ($pamantauBgWorker === false) {
               $pamantauBgWorker = __DIR__ . DIRECTORY_SEPARATOR . 'cli' . DIRECTORY_SEPARATOR . 'background.php';
             }
-            $pamantauCronCmd = '* * * * * /usr/bin/php ' . str_replace('\\', '/', $pamantauBgWorker) . ' >/dev/null 2>&1';
+            $pamantauBgWorkerUnix = str_replace('\\', '/', $pamantauBgWorker);
+            $pamantauCronCmd = '* * * * * /usr/bin/php ' . $pamantauBgWorkerUnix . ' >/dev/null 2>&1';
           ?>
           <h3 data-i18n="bg.section">Background</h3>
           <p class="settings-desc" data-i18n="bg.desc">Izinkan worker server (cli/background.php) menjalankan poll &amp; notifikasi tanpa browser. Masih perlu cron di Linux.</p>
@@ -1029,12 +1030,12 @@ $pamantauAuth = $pamantauHeadlessMode
           </label>
           <div id="bgSchedHint" class="bg-sched-hint hidden" data-depends-on="background-enabled">
             <div class="bg-sched-label" data-i18n="bg.cron_title">Pemasangan cron (Linux)</div>
-            <p class="settings-desc" data-i18n="bg.cron_steps">Edit crontab (crontab -e), lalu tambahkan baris berikut agar worker jalan setiap menit:</p>
+            <p class="settings-desc" data-i18n="bg.cron_steps">Pasang sebagai user www-data (bukan root). Paling mudah: sudo ./install.sh — atau crontab -u www-data -e lalu tambahkan:</p>
             <div class="bg-sched-cmd-row">
               <code class="bg-sched-cmd" id="bgCronHint"><?= htmlspecialchars($pamantauCronCmd, ENT_QUOTES, 'UTF-8') ?></code>
               <button type="button" class="btn ghost" id="btnCopyBgCron" data-i18n="bg.cron_copy">Salin</button>
             </div>
-            <p class="settings-desc" data-i18n="bg.cron_note">Sakelar ON hanya mengizinkan worker; cron harus memanggil skrip.</p>
+            <p class="settings-desc" data-i18n="bg.cron_note">Sakelar ON hanya mengizinkan worker; cron www-data harus memanggil skrip. Jangan taruh baris ini di crontab root.</p>
           </div>
         </section>
 

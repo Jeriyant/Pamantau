@@ -43,6 +43,7 @@ foreach ($name in @(
     'login.php',
     'update.php',
     'update.sh',
+    'install.sh',
     'version.json'
 )) {
     Copy-Item -LiteralPath (Join-Path $source $name) -Destination $stageFull -Force

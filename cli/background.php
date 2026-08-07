@@ -11,18 +11,45 @@ declare(strict_types=1);
  * Uses an exclusive flock so overlapping scheduler runs do not parallelize.
  *
  * ── Linux cron ─────────────────────────────────────────────────────────
- *   The worker self-paces both jobs. To honor a 30-second ping interval with
- *   cron, invoke it at second 0 and second 30:
+ *   Install with: sudo ./install.sh  (cron is installed for www-data)
+ *   Or manually:
+ *   sudo crontab -u www-data -e
  *   * * * * * /usr/bin/php /path/to/Pamantau/cli/background.php >/dev/null 2>&1
  *   * * * * * sleep 30; /usr/bin/php /path/to/Pamantau/cli/background.php >/dev/null 2>&1
  *
  * Note: Turning Background ON in app settings only allows this worker to run;
- * you still need cron to invoke this script.
+ * you still need cron (www-data) to invoke this script. Do not use root crontab.
  */
 
 if (PHP_SAPI !== 'cli') {
     fwrite(STDERR, "cli/background.php must be run from CLI\n");
     exit(1);
+}
+
+// Root crontab is common on VPS. Drop to www-data before any database writes so
+// headless job files match Apache and canvas upload can mark the job complete.
+if (
+    PHP_OS_FAMILY !== 'Windows'
+    && function_exists('posix_geteuid')
+    && posix_geteuid() === 0
+    && function_exists('posix_getpwnam')
+    && function_exists('posix_setgid')
+    && function_exists('posix_setuid')
+) {
+    $webUser = trim((string) (getenv('PAMANTAU_WEB_USER') ?: 'www-data'));
+    $pw = $webUser !== '' ? @posix_getpwnam($webUser) : false;
+    if (is_array($pw) && isset($pw['uid'], $pw['gid'])) {
+        $gid = (int) $pw['gid'];
+        $uid = (int) $pw['uid'];
+        if (function_exists('posix_initgroups')) {
+            @posix_initgroups($webUser, $gid);
+        }
+        @posix_setgid($gid);
+        @posix_setuid($uid);
+        $home = (string) ($pw['dir'] ?? '/var/www');
+        putenv('HOME=' . $home);
+        $_SERVER['HOME'] = $home;
+    }
 }
 
 require_once __DIR__ . '/../includes/db.php';

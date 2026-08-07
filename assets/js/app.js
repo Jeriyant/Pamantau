@@ -11629,9 +11629,23 @@ ${periodHtml}
       draw();
       if (HEADLESS_SNAPSHOT_MODE) {
         if (document.fonts && document.fonts.ready) {
-          await document.fonts.ready;
+          await Promise.race([
+            document.fonts.ready,
+            new Promise((resolve) => setTimeout(resolve, 2000)),
+          ]);
         }
-        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        // Headless Chromium may never fire rAF without virtual-time-budget.
+        await new Promise((resolve) => {
+          let done = false;
+          const finish = () => {
+            if (done) return;
+            done = true;
+            resolve();
+          };
+          requestAnimationFrame(() => requestAnimationFrame(finish));
+          setTimeout(finish, 400);
+        });
+        draw();
         await uploadTelegramCanvasSnapshot({
           action: 'complete_headless_snapshot',
           force: true,

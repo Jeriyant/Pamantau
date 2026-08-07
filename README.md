@@ -2,9 +2,33 @@
 
 Monitor topologi jaringan langsung (PHP + vanilla JS).
 
+## Install Debian/Ubuntu (Apache + www-data)
+
+Dari folder aplikasi di server:
+
+```bash
+sudo chmod +x install.sh
+sudo ./install.sh --base-url=https://127.0.0.1/PAMANTAU/
+```
+
+Skrip akan:
+- memasang PHP, Apache, Chromium, ping/traceroute, cron
+- `chown` seluruh app ke **www-data**
+- memindahkan cron worker dari **root** ke **www-data**
+- menulis `database/runtime-base-url.json` untuk renderer headless
+- menjalankan smoke-check worker sekali
+
+Perbaikan cepat (tanpa apt):
+
+```bash
+sudo ./install.sh --repair --base-url=https://127.0.0.1/PAMANTAU/
+```
+
+Cron harus milik `www-data`, bukan root (kalau root, file job headless jadi tidak bisa di-update Apache).
+
 ## Versi
 
-Sumber versi: `version.json` (saat ini **1.6.1**).
+Sumber versi: `version.json` (saat ini **1.6.2**).
 
 ## Update dari GitHub (seperti FO-Simulator)
 
@@ -15,6 +39,14 @@ Sumber versi: `version.json` (saat ini **1.6.1**).
 5. Di aplikasi: **Pengaturan → Update → Cek update / Pasang update**
 
 Server Linux membutuhkan PHP `exec` + `bash` untuk `update.php` / `update.sh`. Folder `database/` dan file topology `*.json` di root **dipertahankan** saat update.
+
+## Headless screenshot & install v1.6.2
+
+- `install.sh` Debian/Ubuntu: paket PHP/Apache/Chromium, ownership www-data, cron worker di **www-data** (bukan root).
+- Chromium headless menunggu upload canvas (tanpa `--dump-dom` yang keluar terlalu cepat).
+- Worker CLI drop otomatis root → www-data jika cron masih di root.
+- Fallback timer untuk `requestAnimationFrame` / fonts di mode headless.
+- Menerima `output.bin` valid meski update status `job.json` gagal (ownership).
 
 ## Screenshot Linux & UI v1.6.1
 
