@@ -103,6 +103,18 @@ function pamantau_headless_base_url_candidates(?string $primary = null): array
 
 function pamantau_headless_probe_base_url(string $baseUrl): bool
 {
+    $info = pamantau_headless_inspect_base_url($baseUrl);
+    return !empty($info['ok']);
+}
+
+/**
+ * Inspect loopback base URL. Reject HTTPS redirects that leave 127.0.0.1
+ * (common force-HTTPS vhost) — Chromium would drop the headless token.
+ *
+ * @return array{ok:bool,status?:int,location?:string,reason?:string}
+ */
+function pamantau_headless_inspect_base_url(string $baseUrl): array
+{
     $url = rtrim($baseUrl, '/') . '/index.php';
     $ctx = stream_context_create([
         'http' => [
@@ -110,7 +122,7 @@ function pamantau_headless_probe_base_url(string $baseUrl): bool
             'timeout' => 4,
             'ignore_errors' => true,
             'follow_location' => 0,
-            'header' => "Connection: close\r\n",
+            'header' => "Connection: close\r\nUser-Agent: PamantauHeadlessProbe/1.0\r\n",
         ],
         'ssl' => [
             'verify_peer' => false,
@@ -120,26 +132,148 @@ function pamantau_headless_probe_base_url(string $baseUrl): bool
     ]);
     $headers = @get_headers($url, true, $ctx);
     if (!is_array($headers) || empty($headers[0])) {
-        return false;
+        return ['ok' => false, 'reason' => 'unreachable'];
     }
-    return (bool) preg_match('/HTTP\/\S+\s+(200|301|302|303|307|308)\b/i', (string) $headers[0]);
+    if (!preg_match('/HTTP\/\S+\s+(\d{3})\b/i', (string) $headers[0], $sm)) {
+        return ['ok' => false, 'reason' => 'no_status'];
+    }
+    $code = (int) $sm[1];
+    $location = '';
+    if (isset($headers['Location'])) {
+        $location = is_array($headers['Location'])
+            ? (string) end($headers['Location'])
+            : (string) $headers['Location'];
+    } elseif (isset($headers['location'])) {
+        $location = is_array($headers['location'])
+            ? (string) end($headers['location'])
+            : (string) $headers['location'];
+    }
+
+    if ($code === 200) {
+        return ['ok' => true, 'status' => 200];
+    }
+    if (in_array($code, [301, 302, 303, 307, 308], true)) {
+        if ($location === '') {
+            return ['ok' => false, 'status' => $code, 'reason' => 'redirect_no_location'];
+        }
+        if (preg_match('#^https?://#i', $location)) {
+            if (!preg_match('#^https?://(?:127\.0\.0\.1|localhost)(?::\d+)?(?:/|$)#i', $location)) {
+                return [
+                    'ok' => false,
+                    'status' => $code,
+                    'location' => $location,
+                    'reason' => 'redirect_off_loopback',
+                ];
+            }
+        }
+        // Relative Location stays on the same host.
+        return ['ok' => true, 'status' => $code, 'location' => $location];
+    }
+    return ['ok' => false, 'status' => $code, 'reason' => 'bad_status'];
 }
 
 /**
- * Pick a loopback base URL that Apache actually answers.
+ * Pick a loopback base URL that Apache answers with HTTP 200 (preferred)
+ * or a redirect that stays on 127.0.0.1/localhost.
  */
 function pamantau_headless_resolve_reachable_base_url(): string
 {
     $candidates = pamantau_headless_base_url_candidates();
-    $tried = [];
+    $localRedirect = '';
+    $offLoopback = [];
     foreach ($candidates as $candidate) {
-        $tried[] = $candidate;
-        if (pamantau_headless_probe_base_url($candidate)) {
+        $info = pamantau_headless_inspect_base_url($candidate);
+        if (empty($info['ok'])) {
+            if (($info['reason'] ?? '') === 'redirect_off_loopback') {
+                $offLoopback[] = $candidate . ' → ' . (string) ($info['location'] ?? '');
+            }
+            continue;
+        }
+        if ((int) ($info['status'] ?? 0) === 200) {
+            $GLOBALS['pamantau_headless_url_warn'] = '';
             return $candidate;
         }
+        if ($localRedirect === '') {
+            $localRedirect = $candidate;
+        }
     }
-    // Fall back to primary even if probe failed (probe may be disabled).
+    if ($localRedirect !== '') {
+        return $localRedirect;
+    }
+    if ($offLoopback !== []) {
+        $GLOBALS['pamantau_headless_url_warn'] = 'HTTP loopback diarahkan ke host publik ('
+            . implode('; ', $offLoopback)
+            . '). Kecualikan 127.0.0.1 dari force-HTTPS Apache, atau screenshot headless gagal.';
+    }
     return $candidates[0] ?? '';
+}
+
+/**
+ * Verify Apache serves the headless app (not login.php) for this one-time token.
+ *
+ * @return array{ok:bool,error?:string,status?:int}
+ */
+function pamantau_headless_preflight_token_page(string $url, string $token): array
+{
+    $ctx = stream_context_create([
+        'http' => [
+            'method' => 'GET',
+            'timeout' => 8,
+            'ignore_errors' => true,
+            'follow_location' => 0,
+            'header' => "Connection: close\r\nUser-Agent: PamantauHeadlessPreflight/1.0\r\n",
+        ],
+        'ssl' => [
+            'verify_peer' => false,
+            'verify_peer_name' => false,
+            'allow_self_signed' => true,
+        ],
+    ]);
+    $headers = @get_headers($url, true, $ctx);
+    $statusLine = is_array($headers) ? (string) ($headers[0] ?? '') : '';
+    $code = 0;
+    if (preg_match('/HTTP\/\S+\s+(\d{3})\b/i', $statusLine, $sm)) {
+        $code = (int) $sm[1];
+    }
+    $location = '';
+    if (is_array($headers)) {
+        if (isset($headers['Location'])) {
+            $location = is_array($headers['Location'])
+                ? (string) end($headers['Location'])
+                : (string) $headers['Location'];
+        } elseif (isset($headers['location'])) {
+            $location = is_array($headers['location'])
+                ? (string) end($headers['location'])
+                : (string) $headers['location'];
+        }
+    }
+    if ($code === 302 || $code === 301) {
+        return [
+            'ok' => false,
+            'status' => $code,
+            'error' => 'Halaman headless diarahkan ke '
+                . ($location !== '' ? $location : 'login')
+                . ' — token/job tidak dibaca Apache. Cek permission database/headless-snapshot-job.json'
+                . ' (harus readable www-data) dan bahwa URL path sama dengan folder app.',
+        ];
+    }
+    $body = @file_get_contents($url, false, $ctx);
+    if (!is_string($body) || $body === '') {
+        return [
+            'ok' => false,
+            'status' => $code,
+            'error' => 'Halaman headless kosong/tidak terjangkau [' . $url . ']',
+        ];
+    }
+    if (!str_contains($body, 'PAMANTAU_HEADLESS_SNAPSHOT_TOKEN') || !str_contains($body, $token)) {
+        return [
+            'ok' => false,
+            'status' => $code,
+            'error' => 'HTML headless tidak berisi token (status=' . $code . ').'
+                . ' Kemungkinan login page atau cache file lama.',
+        ];
+    }
+    return ['ok' => true, 'status' => $code > 0 ? $code : 200];
 }
 
 /** @return array<string,mixed> */
@@ -158,6 +292,18 @@ function pamantau_headless_token_valid(string $token): bool
     return !empty($job['token_hash'])
         && (int) ($job['expires_at'] ?? 0) >= time()
         && ($job['status'] ?? '') === 'pending'
+        && hash_equals((string) $job['token_hash'], hash('sha256', $token));
+}
+
+/** Token hash matches an unexpired job (any status except missing). */
+function pamantau_headless_token_hash_matches(string $token): bool
+{
+    if (!preg_match('/^[a-f0-9]{64}$/', $token)) {
+        return false;
+    }
+    $job = pamantau_headless_read_job();
+    return !empty($job['token_hash'])
+        && (int) ($job['expires_at'] ?? 0) >= time()
         && hash_equals((string) $job['token_hash'], hash('sha256', $token));
 }
 
@@ -274,6 +420,39 @@ function pamantau_headless_complete_upload(mixed $upload, string $token): array
         LOCK_EX
     );
     return array_merge($valid, ['ok' => true]);
+}
+
+/**
+ * Mark the active headless job as failed so the CLI waiter can surface JS errors.
+ *
+ * @return array{ok:bool,error?:string}
+ */
+function pamantau_headless_mark_failed(string $token, string $error): array
+{
+    if (!preg_match('/^[a-f0-9]{64}$/', $token)) {
+        return ['ok' => false, 'error' => 'Token render tidak valid'];
+    }
+    $job = pamantau_headless_read_job();
+    if ($job === [] || empty($job['token_hash'])) {
+        return ['ok' => false, 'error' => 'Job headless tidak ditemukan'];
+    }
+    if (!hash_equals((string) $job['token_hash'], hash('sha256', $token))) {
+        return ['ok' => false, 'error' => 'Token render tidak valid'];
+    }
+    if ((int) ($job['expires_at'] ?? 0) < time()) {
+        return ['ok' => false, 'error' => 'Token render kedaluwarsa'];
+    }
+    if (($job['status'] ?? '') === 'complete') {
+        return ['ok' => true];
+    }
+    $job['status'] = 'error';
+    $job['error'] = substr(trim($error) !== '' ? trim($error) : 'Headless snapshot gagal', 0, 500);
+    $job['failed_at'] = time();
+    $json = json_encode($job, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    if (!is_string($json) || @file_put_contents(pamantau_headless_job_path(), $json, LOCK_EX) === false) {
+        return ['ok' => false, 'error' => 'Status error headless tidak dapat disimpan'];
+    }
+    return ['ok' => true];
 }
 
 function pamantau_headless_browser_candidate_usable(string $candidate): bool
@@ -417,10 +596,11 @@ function pamantau_headless_terminate_process(mixed $process): void
 
 /**
  * Environment for headless Chromium on Linux VPS (no interactive D-Bus session).
+ * Pass $profile so HOME/XDG point at a writable per-job directory (required for Crashpad).
  *
  * @return array<string,string>|null null = inherit (Windows)
  */
-function pamantau_headless_proc_env(): ?array
+function pamantau_headless_proc_env(?string $profile = null): ?array
 {
     if (PHP_OS_FAMILY === 'Windows') {
         return null;
@@ -462,19 +642,34 @@ function pamantau_headless_proc_env(): ?array
         $env['XDG_RUNTIME_DIR'] = $xdg;
     }
 
-    $home = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'pamantau-home';
-    if (!is_dir($home)) {
-        @mkdir($home, 0700, true);
-    }
-    if (is_dir($home) && is_writable($home)) {
-        $env['HOME'] = $home;
+    // Chromium 128+ aborts with SIGTRAP if Crashpad cannot create its database
+    // under HOME/.config (common for www-data with non-writable /var/www).
+    if (is_string($profile) && $profile !== '' && is_dir($profile)) {
+        $config = $profile . DIRECTORY_SEPARATOR . '.config';
+        $cache = $profile . DIRECTORY_SEPARATOR . '.cache';
+        @mkdir($config . DIRECTORY_SEPARATOR . 'chromium' . DIRECTORY_SEPARATOR . 'Crashpad', 0700, true);
+        @mkdir($cache, 0700, true);
+        $env['HOME'] = $profile;
+        $env['XDG_CONFIG_HOME'] = $config;
+        $env['XDG_CACHE_HOME'] = $cache;
+    } else {
+        $home = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'pamantau-home';
+        if (!is_dir($home)) {
+            @mkdir($home, 0700, true);
+        }
+        if (is_dir($home) && is_writable($home)) {
+            $env['HOME'] = $home;
+            @mkdir($home . '/.config/chromium/Crashpad', 0700, true);
+            @mkdir($home . '/.cache', 0700, true);
+            $env['XDG_CONFIG_HOME'] = $home . '/.config';
+            $env['XDG_CACHE_HOME'] = $home . '/.cache';
+        }
     }
 
     if (!isset($env['LANG']) || trim((string) $env['LANG']) === '') {
         $env['LANG'] = 'C.UTF-8';
     }
 
-    // Debian chromium often spawns crashpad_handler without --database under cron.
     $env['CHROME_HEADLESS'] = '1';
     unset($env['CHROME_CRASHPAD_PIPE_NAME'], $env['BREAKPAD_DUMP_LOCATION']);
 
@@ -542,6 +737,17 @@ function pamantau_render_topology_headless(): array
     if ($baseUrl === '') {
         return ['ok' => false, 'error' => 'URL lokal renderer belum tersedia; buka Pamantau sekali setelah server aktif'];
     }
+    $urlWarn = trim((string) ($GLOBALS['pamantau_headless_url_warn'] ?? ''));
+    $probe = pamantau_headless_inspect_base_url($baseUrl);
+    if ($urlWarn !== '' || (($probe['reason'] ?? '') === 'redirect_off_loopback')) {
+        $loc = (string) ($probe['location'] ?? '');
+        return [
+            'ok' => false,
+            'error' => ($urlWarn !== '' ? $urlWarn : ('URL lokal redirect ke luar loopback: ' . $loc))
+                . ' Contoh perbaikan Apache: RewriteCond %{REMOTE_ADDR} !^127\\.0\\.0\\.1$ sebelum force-HTTPS.'
+                . ' Uji: curl -sI ' . rtrim($baseUrl, '/') . '/index.php',
+        ];
+    }
     // Remember the loopback URL that actually answered (often http://127.0.0.1/... not :443).
     @file_put_contents(
         pamantau_runtime_base_url_path(),
@@ -566,12 +772,24 @@ function pamantau_render_topology_headless(): array
         $crashDir = $profile;
     }
     $url = $baseUrl . 'index.php?headless_snapshot=' . rawurlencode($token);
+    // Fail fast if Apache still serves login.php (token/job not readable).
+    $preflight = pamantau_headless_preflight_token_page($url, $token);
+    if (empty($preflight['ok'])) {
+        @unlink(pamantau_headless_job_path());
+        @unlink(pamantau_headless_output_path());
+        pamantau_headless_remove_tree($profile);
+        return [
+            'ok' => false,
+            'error' => (string) ($preflight['error'] ?? 'Halaman headless tidak valid'),
+        ];
+    }
     // Keep the browser open until JS POSTs the canvas (complete_headless_snapshot).
     // Do not use --dump-dom / --virtual-time-budget: those exit before async upload.
-    // --crash-dumps-dir + crashpad flags avoid "--database is required" under cron.
+    // Debian Chromium: --no-crashpad avoids SIGTRAP from chrome_crashpad_handler.
+    $headlessFlag = PHP_OS_FAMILY === 'Windows' ? '--headless=new' : '--headless';
     $command = [
         $browser,
-        '--headless=new',
+        $headlessFlag,
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
@@ -586,6 +804,7 @@ function pamantau_render_topology_headless(): array
         '--disable-renderer-backgrounding',
         '--disable-breakpad',
         '--disable-crash-reporter',
+        '--no-crashpad',
         '--disable-features=TranslateUI,AudioServiceOutOfProcess,Crashpad,CrashReporting',
         '--no-first-run',
         '--no-default-browser-check',
@@ -608,7 +827,7 @@ function pamantau_render_topology_headless(): array
         $descriptors,
         $pipes,
         null,
-        pamantau_headless_proc_env(),
+        pamantau_headless_proc_env($profile),
         ['bypass_shell' => true]
     );
     if (!is_resource($process)) {
@@ -619,10 +838,11 @@ function pamantau_render_topology_headless(): array
     stream_set_blocking($pipes[1], false);
     stream_set_blocking($pipes[2], false);
     $deadline = microtime(true) + PAMANTAU_HEADLESS_SNAPSHOT_TTL;
-    $browserExitGrace = 3.0;
+    $browserExitGrace = 15.0;
     $browserExitAt = null;
     $error = '';
     $result = null;
+    $jsError = null;
     $outputNotBefore = time() - 1;
     try {
         while (microtime(true) < $deadline) {
@@ -631,6 +851,11 @@ function pamantau_render_topology_headless(): array
             $error .= (string) stream_get_contents($pipes[2]);
             if (strlen($error) > 4096) {
                 $error = substr($error, -4096);
+            }
+            $job = pamantau_headless_read_job();
+            if (($job['status'] ?? '') === 'error') {
+                $jsError = trim((string) ($job['error'] ?? 'Headless snapshot gagal'));
+                break;
             }
             $try = pamantau_headless_try_read_result($outputNotBefore);
             if (is_array($try)) {
@@ -642,14 +867,20 @@ function pamantau_render_topology_headless(): array
                 if ($browserExitAt === null) {
                     $browserExitAt = microtime(true);
                 }
-                // Brief grace for a late POST, then fail (browser died early).
+                // Grace for a late POST after Chromium exits.
                 if ((microtime(true) - $browserExitAt) >= $browserExitGrace) {
                     break;
                 }
             }
             usleep(150000);
         }
-        if ($result === null) {
+        if ($result === null && $jsError === null) {
+            $job = pamantau_headless_read_job();
+            if (($job['status'] ?? '') === 'error') {
+                $jsError = trim((string) ($job['error'] ?? 'Headless snapshot gagal'));
+            }
+        }
+        if ($result === null && $jsError === null) {
             $try = pamantau_headless_try_read_result($outputNotBefore);
             if (is_array($try)) {
                 $result = $try;
@@ -658,16 +889,28 @@ function pamantau_render_topology_headless(): array
         if (is_array($result)) {
             return $result;
         }
+        if (is_string($jsError) && $jsError !== '') {
+            return [
+                'ok' => false,
+                'error' => 'Renderer headless: ' . substr($jsError, 0, 360) . ' [url=' . $baseUrl . ']',
+            ];
+        }
         $detail = pamantau_headless_stderr_summary($error);
+        $job = pamantau_headless_read_job();
+        $jobHint = ' job=' . (string) ($job['status'] ?? 'missing')
+            . ' out=' . (is_file(pamantau_headless_output_path()) ? 'yes' : 'no');
         if ($detail === '') {
             $detail = 'Chromium headless jalan, tetapi canvas belum diunggah'
-                . ' (coba: curl -sI http://127.0.0.1/PAMANTAU/ dan set'
-                . ' --base-url=http://127.0.0.1/PAMANTAU/ via install.sh --repair)';
+                . $jobHint
+                . ' — cek: curl -sI ' . rtrim($baseUrl, '/') . '/index.php'
+                . ' (jangan sampai Location mengarah ke domain publik; kecualikan 127.0.0.1 dari force-HTTPS)';
+        } else {
+            $detail .= $jobHint;
         }
         return [
             'ok' => false,
             'error' => 'Renderer browser tidak menghasilkan canvas baru'
-                . ': ' . substr($detail, 0, 300)
+                . ': ' . substr($detail, 0, 360)
                 . ' [url=' . $baseUrl . ']',
         ];
     } finally {

@@ -142,9 +142,13 @@ $headlessToken = trim((string) (
     ?? $body['headless_token']
     ?? ''
 ));
-$headlessActions = ['bootstrap', 'complete_headless_snapshot'];
-$headlessAuthorized = in_array($action, $headlessActions, true)
-    && pamantau_headless_token_valid($headlessToken);
+$headlessActions = ['bootstrap', 'complete_headless_snapshot', 'headless_snapshot_fail'];
+$headlessAuthorized = false;
+if (in_array($action, $headlessActions, true)) {
+    $headlessAuthorized = $action === 'headless_snapshot_fail'
+        ? pamantau_headless_token_hash_matches($headlessToken)
+        : pamantau_headless_token_valid($headlessToken);
+}
 
 // logout is public so a half-dead session can still be cleared without a 401 loop.
 $publicActions = ['login', 'auth_status', 'logout'];
@@ -779,6 +783,15 @@ try {
                 'width' => $saved['width'] ?? 0,
                 'height' => $saved['height'] ?? 0,
             ]);
+        }
+
+        case 'headless_snapshot_fail': {
+            $msg = trim((string) ($body['error'] ?? $_POST['error'] ?? 'Headless snapshot gagal'));
+            $saved = pamantau_headless_mark_failed($headlessToken, $msg);
+            if (empty($saved['ok'])) {
+                json_out(['ok' => false, 'error' => $saved['error'] ?? 'Gagal mencatat error headless'], 422);
+            }
+            json_out(['ok' => true]);
         }
 
         case 'telegram_test_screenshot': {

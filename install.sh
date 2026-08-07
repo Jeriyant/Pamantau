@@ -158,6 +158,15 @@ fix_permissions() {
     printf 'Require all denied\n' >"$APP_DIR/database/.htaccess"
   fi
 
+  # Chromium Crashpad needs a writable HOME/.config for www-data.
+  local www_home
+  www_home="$(getent passwd "$WEB_USER" | awk -F: '{print $6}')"
+  if [[ -z "$www_home" || "$www_home" == "/" ]]; then
+    www_home="/var/www"
+  fi
+  mkdir -p "$www_home/.config/chromium/Crashpad" "$www_home/.cache"
+  chown -R "${WEB_USER}:${WEB_GROUP}" "$www_home/.config" "$www_home/.cache" 2>/dev/null || true
+
   # Drop stale root-owned headless leftovers that block www-data writes.
   rm -f \
     "$APP_DIR/database/headless-snapshot-job.json" \
@@ -266,8 +275,10 @@ install_www_data_cron() {
 }
 
 smoke_check() {
-  local php_bin
+  local php_bin base_name probe_url
   php_bin="$(detect_php_bin)" || fail "php CLI tidak ditemukan"
+  base_name="$(basename "$APP_DIR")"
+  probe_url="http://127.0.0.1/${base_name}/index.php"
 
   log "Smoke check…"
   [[ -x "$(command -v ping || true)" || -x /bin/ping || -x /usr/bin/ping ]] || warn "ping tidak ditemukan"
@@ -277,6 +288,24 @@ smoke_check() {
     warn "Chromium belum terpasang — screenshot Telegram headless tidak akan jalan"
   else
     log "Chromium: OK"
+  fi
+
+  if command -v curl >/dev/null 2>&1; then
+    local headers loc
+    headers="$(curl -sI --max-time 5 "$probe_url" 2>/dev/null || true)"
+    loc="$(printf '%s\n' "$headers" | awk 'tolower($1)=="location:"{print $2}' | tr -d '\r' | tail -n1)"
+    if printf '%s\n' "$headers" | head -n1 | grep -qE 'HTTP/.* 200'; then
+      log "Loopback HTTP 200: $probe_url"
+    elif [[ -n "$loc" ]] && ! printf '%s' "$loc" | grep -qiE '^https?://(127\.0\.0\.1|localhost)(:[0-9]+)?(/|$)'; then
+      warn "Loopback di-redirect ke host publik: $loc"
+      warn "Chromium headless akan gagal. Kecualikan 127.0.0.1 dari force-HTTPS, contoh:"
+      warn "  RewriteCond %{REMOTE_ADDR} !^127\\.0\\.0\\.1\$"
+      warn "  RewriteCond %{HTTPS} off"
+      warn "  RewriteRule ^ https://%{HTTP_HOST}%{REQUEST_URI} [L,R=301]"
+    else
+      warn "Probe $probe_url:"
+      printf '%s\n' "$headers" | head -n5 | while read -r line; do warn "  $line"; done
+    fi
   fi
 
   # Write / run checks as web user

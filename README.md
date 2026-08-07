@@ -28,7 +28,7 @@ Cron harus milik `www-data`, bukan root (kalau root, file job headless jadi tida
 
 ## Versi
 
-Sumber versi: `version.json` (saat ini **1.6.3**).
+Sumber versi: `version.json` (saat ini **1.6.4**).
 
 ## Update dari GitHub (seperti FO-Simulator)
 
@@ -39,6 +39,13 @@ Sumber versi: `version.json` (saat ini **1.6.3**).
 5. Di aplikasi: **Pengaturan → Update → Cek update / Pasang update**
 
 Server Linux membutuhkan PHP `exec` + `bash` untuk `update.php` / `update.sh`. Folder `database/` dan file topology `*.json` di root **dipertahankan** saat update.
+
+## Crashpad & error reporting v1.6.4
+
+- Fix Chromium `Trace/breakpoint trap` (crashpad `--database is required`) di Debian/Ubuntu sebagai www-data: `--no-crashpad` + HOME/XDG per-job writable.
+- `install.sh` menyiapkan `~/.config/chromium/Crashpad` untuk www-data.
+- Error JavaScript headless dilaporkan balik ke worker (`headless_snapshot_fail`) sehingga pesan gagal lebih jelas.
+- Mode headless melewati `restoreDocSession` dan preflight token untuk deteksi login/redirect.
 
 ## Headless HTTP fallback v1.6.3
 

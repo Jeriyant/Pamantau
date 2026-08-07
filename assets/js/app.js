@@ -11611,7 +11611,7 @@ ${periodHtml}
     resize();
     window.addEventListener('resize', resize);
     selectDevice(null);
-    await loadIcons();
+      await loadIcons();
     syncAuthUi();
     try {
       const data = await api('bootstrap');
@@ -11627,7 +11627,9 @@ ${periodHtml}
       history.stack = [];
       history.index = -1;
       pushHistory({ dirty: false });
-      await restoreDocSession();
+      if (!HEADLESS_SNAPSHOT_MODE) {
+        await restoreDocSession();
+      }
       resize();
       syncZoomUi();
       draw();
@@ -11668,7 +11670,11 @@ ${periodHtml}
       });
     } catch (e) {
       if (HEADLESS_SNAPSHOT_MODE) {
-        document.title = `PAMANTAU_HEADLESS_SNAPSHOT_ERROR: ${e.message}`;
+        const msg = e && e.message ? String(e.message) : 'Headless snapshot gagal';
+        document.title = `PAMANTAU_HEADLESS_SNAPSHOT_ERROR: ${msg}`;
+        try {
+          await api('headless_snapshot_fail', { error: msg });
+        } catch (_) { /* waiter still times out with pending */ }
         return;
       }
       toast(t('toast.load_fail', { err: e.message }));
